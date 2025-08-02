@@ -1,0 +1,12 @@
+# Rust build artifacts
+/target/
+Cargo.lock
+
+# Test files and databases
+*.db
+*.jsonl
+*.log
+
+# Backup files
+*~
+*.bak
