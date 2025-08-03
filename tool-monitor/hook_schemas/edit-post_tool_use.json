@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string"
+    },
+    "transcript_path": {
+      "type": "string"
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "hook_event_name": {
+      "const": "PostToolUse"
+    },
+    "tool_name": {
+      "type": "string"
+    },
+    "tool_input": {
+      "type": "object",
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "old_string": {
+          "type": "string"
+        },
+        "new_string": {
+          "type": "string"
+        },
+        "replace_all": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "file_path",
+        "old_string",
+        "new_string"
+      ]
+    },
+    "tool_response": {
+      "type": "object",
+      "properties": {
+        "filePath": {
+          "type": "string"
+        },
+        "oldString": {
+          "type": "string"
+        },
+        "newString": {
+          "type": "string"
+        },
+        "originalFile": {
+          "type": "string"
+        },
+        "structuredPatch": {
+          "type": "array"
+        },
+        "userModified": {
+          "type": "boolean"
+        },
+        "replaceAll": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "required": [
+    "session_id",
+    "transcript_path",
+    "cwd",
+    "hook_event_name",
+    "tool_name",
+    "tool_input",
+    "tool_response"
+  ],
+  "title": "Edit PostToolUse Schema",
+  "description": "JSON Schema for Edit tool PostToolUse events"
+}

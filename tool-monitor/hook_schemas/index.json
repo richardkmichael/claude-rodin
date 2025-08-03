@@ -1,0 +1,148 @@
+{
+  "title": "Claude Code Tool Hook Schemas",
+  "description": "Complete JSON Schema files for all Claude Code tool hooks",
+  "version": "2.0.0",
+  "generated_at": "2025-08-03",
+  "naming_convention": "{toolname}-{full_hook_name}.json",
+  "validation_tool": "uvx check-jsonschema",
+  "schemas": {
+    "Bash": {
+      "category": "System",
+      "analysis_fields": [
+        "$.tool_input.command",
+        "$.tool_input.description"
+      ],
+      "files": {
+        "pre_tool_use": "bash-pre_tool_use.json",
+        "post_tool_use": "bash-post_tool_use.json"
+      }
+    },
+    "Edit": {
+      "category": "File",
+      "analysis_fields": [
+        "$.tool_input.file_path",
+        "$.tool_input.old_string",
+        "$.tool_input.new_string"
+      ],
+      "files": {
+        "pre_tool_use": "edit-pre_tool_use.json",
+        "post_tool_use": "edit-post_tool_use.json"
+      }
+    },
+    "Glob": {
+      "category": "Search",
+      "analysis_fields": [
+        "$.tool_input.pattern",
+        "$.tool_input.path"
+      ],
+      "files": {
+        "pre_tool_use": "glob-pre_tool_use.json",
+        "post_tool_use": "glob-post_tool_use.json"
+      }
+    },
+    "Grep": {
+      "category": "Search",
+      "analysis_fields": [
+        "$.tool_input.pattern",
+        "$.tool_input.output_mode"
+      ],
+      "files": {
+        "pre_tool_use": "grep-pre_tool_use.json",
+        "post_tool_use": "grep-post_tool_use.json"
+      }
+    },
+    "LS": {
+      "category": "System",
+      "analysis_fields": [],
+      "files": {
+        "pre_tool_use": "ls-pre_tool_use.json",
+        "post_tool_use": "ls-post_tool_use.json"
+      }
+    },
+    "Read": {
+      "category": "File",
+      "analysis_fields": [
+        "$.tool_input.file_path"
+      ],
+      "files": {
+        "pre_tool_use": "read-pre_tool_use.json",
+        "post_tool_use": "read-post_tool_use.json"
+      }
+    },
+    "Write": {
+      "category": "File",
+      "analysis_fields": [
+        "$.tool_input.file_path"
+      ],
+      "files": {
+        "pre_tool_use": "write-pre_tool_use.json",
+        "post_tool_use": "write-post_tool_use.json"
+      }
+    },
+    "Task": {
+      "category": "Workflow",
+      "analysis_fields": [
+        "$.tool_input.description",
+        "$.tool_input.subagent_type"
+      ],
+      "files": {
+        "pre_tool_use": "task-pre_tool_use.json",
+        "post_tool_use": "task-post_tool_use.json"
+      }
+    },
+    "TodoWrite": {
+      "category": "Workflow",
+      "analysis_fields": [
+        "$.tool_input.todos"
+      ],
+      "files": {
+        "pre_tool_use": "todowrite-pre_tool_use.json",
+        "post_tool_use": "todowrite-post_tool_use.json"
+      }
+    },
+    "WebSearch": {
+      "category": "Web",
+      "analysis_fields": [
+        "$.tool_input.query"
+      ],
+      "files": {
+        "pre_tool_use": "websearch-pre_tool_use.json",
+        "post_tool_use": "websearch-post_tool_use.json"
+      }
+    },
+    "WebFetch": {
+      "category": "Web",
+      "analysis_fields": [
+        "$.tool_input.url"
+      ],
+      "files": {
+        "pre_tool_use": "webfetch-pre_tool_use.json",
+        "post_tool_use": "webfetch-post_tool_use.json"
+      }
+    },
+    "NotebookRead": {
+      "category": "File",
+      "analysis_fields": [],
+      "files": {
+        "pre_tool_use": "notebookread-pre_tool_use.json",
+        "post_tool_use": "notebookread-post_tool_use.json"
+      }
+    },
+    "MultiEdit": {
+      "category": "File",
+      "analysis_fields": [],
+      "files": {
+        "pre_tool_use": "multiedit-pre_tool_use.json",
+        "post_tool_use": "multiedit-post_tool_use.json"
+      }
+    },
+    "ExitPlanMode": {
+      "category": "Workflow",
+      "analysis_fields": [],
+      "files": {
+        "pre_tool_use": "exitplanmode-pre_tool_use.json",
+        "post_tool_use": "exitplanmode-post_tool_use.json"
+      }
+    }
+  }
+}

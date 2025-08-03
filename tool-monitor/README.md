@@ -1,53 +1,133 @@
-# tool-monitor
+# Tool Monitor
 
-A SQLite-powered logger for analyzing how Claude uses command line tools.
+A SQLite-powered logger for analyzing Claude Code tool usage events. Captures JSON tool events from stdin and stores them for analysis.
 
-## What it does
+## Features
 
-Captures tool usage events from Claude sessions and stores them for analysis. Because understanding AI tool patterns is more interesting than watching paint dry.
+- **Schema V2**: Minimal, future-proof database schema with JSON Schema validation
+- **Fast Rust binary**: Processes tool events with excellent performance
+- **SQLite storage**: WAL mode for concurrent access, generated columns for stable fields
+- **JSON Schema validation**: Industry-standard validation using `uvx check-jsonschema`
+- **Migration tools**: Safe migration from V1 to V2 with automatic backups
 
-## Usage
+## Quick Start
 
+### For New Installations
 ```bash
-# Hook it up to Claude's tool events
-echo '{"session_id":"abc","tool_name":"Bash","tool_input":{"command":"ls"}}' | tool-monitor claude-tools.db
+# Build the tool
+cargo build --release
 
-# Now analyze Claude's command line habits
+# Process tool events
+echo '{"session_id":"abc","tool_name":"Bash","tool_input":{"command":"ls"}}' | ./target/release/tool-monitor monitor.db
 ```
 
-## Architecture
+### For Existing V1 Databases
+```bash
+# Migrate to Schema V2 (creates automatic backup)
+python tools/migration/migrate_to_v2.py your_existing_monitor.db
 
-- **This tool**: Captures everything, asks no questions
-- **Your analysis tool**: Connects to same DB, creates views, discovers Claude's favorite commands
-- **SQLite WAL mode**: Because concurrent access shouldn't require a PhD
+# Validate schemas work correctly
+python tools/validation/validate_against_schemas.py your_existing_monitor.db
+```
 
-## What gets stored
+## Database Schema
 
-JSON blobs with auto-generated columns for:
-- `session_id`, `tool_name`, `command`, `timestamp`
-- `command_word` (first word of bash commands)
-- Whatever else your JSON contains
+### Schema V2 Design
+- **`schema_info`**: Database schema version and metadata
+- **`tool_events`**: Minimal table with stable hook fields + full JSON payload
+- **`tool_schemas`**: 28 complete JSON Schema documents (one for each tool/hook combination)
+- **`schema_versions`**: Tool schema evolution tracking
 
-## Size
+### Generated Columns (Stable Fields Only)
+- `hook_event_name` - PreToolUse/PostToolUse
+- `tool_name` - Name of the tool (Bash, Edit, etc.)
+- `cwd` - Current working directory
+- `transcript_path` - Path to session transcript
 
-1.9MB of pure, uncompressed efficiency. SQLite doesn't diet.
+## JSON Schema Files
 
-## Dependencies
+The `schemas/` directory contains 28 validated JSON Schema files:
+- **Naming**: `{toolname}-{hook_event}.json` (e.g., `bash-pre_tool_use.json`)
+- **Validation**: All schemas tested against real Claude Code data
+- **Coverage**: 14 tools × 2 hook events (PreToolUse + PostToolUse)
 
-None. SQLite is bundled because managing external dependencies is like herding cats.
+## Tools
 
-## Tests
-
-27 tests. They all pass. We checked.
+### `tools/migration/migrate_to_v2.py`
+Migrates existing V1 databases to V2 schema. Creates backups automatically.
 
 ```bash
-cargo test
+python tools/migration/migrate_to_v2.py monitor.db
+```
+
+### `tools/validation/validate_against_schemas.py`
+Validates database payloads against JSON schemas using `uvx check-jsonschema`.
+
+```bash
+# Validate all tools
+python tools/validation/validate_against_schemas.py monitor.db
+
+# Validate specific tool
+python tools/validation/validate_against_schemas.py monitor.db Bash PreToolUse
+```
+
+### `tools/validation/derive_schemas_from_payloads.py`
+Analyzes actual payloads to derive JSON schema structures. Useful when Claude Code tools change or for documenting new tools.
+
+```bash
+# Analyze all tools and show derived structures
+python tools/validation/derive_schemas_from_payloads.py monitor.db
+
+# Analyze specific tool
+python tools/validation/derive_schemas_from_payloads.py monitor.db --tool Bash
+
+# Compare derived schemas with existing schema files
+python tools/validation/derive_schemas_from_payloads.py monitor.db --compare
+```
+
+### `tools/validation/check_schema_version.py`
+Checks database schema version and compatibility with current tools.
+
+```bash
+# Check schema version and compatibility
+python tools/validation/check_schema_version.py monitor.db
 ```
 
 ## Building
 
 ```bash
+# Development
+cargo build
+
+# Optimized release
 cargo build --release
+
+# Run tests
+cargo test
 ```
 
-Gets you a fast binary that strips debug symbols but keeps your dignity intact.
+## Example Queries
+
+```sql
+-- Tool usage statistics
+SELECT tool_name, COUNT(*) 
+FROM tool_events 
+GROUP BY tool_name 
+ORDER BY COUNT(*) DESC;
+
+-- Extract bash commands (runtime JSON extraction)
+SELECT json_extract(payload, '$.tool_input.command') as command
+FROM tool_events 
+WHERE tool_name = 'Bash';
+
+-- Available schemas
+SELECT tool_name, hook_event, file_name, category
+FROM tool_schemas 
+ORDER BY category, tool_name;
+```
+
+## Dependencies
+
+- **Runtime**: None (SQLite bundled)
+- **Validation**: `uvx` (for JSON Schema validation)
+- **Migration**: Python 3.7+

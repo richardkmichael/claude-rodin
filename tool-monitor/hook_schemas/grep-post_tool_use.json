@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string"
+    },
+    "transcript_path": {
+      "type": "string"
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "hook_event_name": {
+      "const": "PostToolUse"
+    },
+    "tool_name": {
+      "type": "string"
+    },
+    "tool_input": {
+      "type": "object",
+      "properties": {
+        "pattern": {
+          "type": "string"
+        },
+        "output_mode": {
+          "type": "string",
+          "enum": [
+            "content",
+            "files_with_matches",
+            "count"
+          ],
+          "default": "files_with_matches"
+        },
+        "path": {
+          "type": "string"
+        },
+        "glob": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "-i": {
+          "type": "boolean"
+        },
+        "-n": {
+          "type": "boolean"
+        },
+        "-A": {
+          "type": "number"
+        },
+        "-B": {
+          "type": "number"
+        },
+        "-C": {
+          "type": "number"
+        },
+        "multiline": {
+          "type": "boolean"
+        },
+        "head_limit": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    },
+    "tool_response": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "filenames": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "numFiles": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  "required": [
+    "session_id",
+    "transcript_path",
+    "cwd",
+    "hook_event_name",
+    "tool_name",
+    "tool_input",
+    "tool_response"
+  ],
+  "title": "Grep PostToolUse Schema",
+  "description": "JSON Schema for Grep tool PostToolUse events"
+}

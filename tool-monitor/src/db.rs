@@ -66,29 +66,38 @@ impl Database {
     }
 
     fn create_tables(&self) -> SqliteResult<()> {
+        // Create schema_info table for version tracking
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_info (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+
+        // Insert schema version (ignore if already exists)
+        self.conn.execute(
+            "INSERT OR IGNORE INTO schema_info (key, value) VALUES ('version', '2.0.0')",
+            [],
+        )?;
+        self.conn.execute(
+            "INSERT OR IGNORE INTO schema_info (key, value) VALUES ('description', 'Minimal schema with schema-as-data design')",
+            [],
+        )?;
+
+        // Create tool_events table with minimal V2 schema (only stable hook contract fields)
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS tool_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT NOT NULL,
                 payload TEXT NOT NULL,
                 
-                -- Generated columns optimized for analysis
+                -- Stable hook contract fields only (guaranteed by Claude Code)
                 hook_event_name TEXT GENERATED ALWAYS AS (json_extract(payload, '$.hook_event_name')) STORED,
                 tool_name TEXT GENERATED ALWAYS AS (json_extract(payload, '$.tool_name')) STORED,
                 cwd TEXT GENERATED ALWAYS AS (json_extract(payload, '$.cwd')) STORED,
-                command TEXT GENERATED ALWAYS AS (json_extract(payload, '$.tool_input.command')) STORED,
-                description TEXT GENERATED ALWAYS AS (json_extract(payload, '$.tool_input.description')) STORED,
-                
-                -- Analysis-friendly fields
-                timestamp TEXT GENERATED ALWAYS AS (json_extract(payload, '$.timestamp')) STORED,
-                command_word TEXT GENERATED ALWAYS AS (
-                    CASE WHEN json_extract(payload, '$.tool_input.command') IS NOT NULL 
-                    THEN substr(json_extract(payload, '$.tool_input.command'), 1, 
-                         CASE WHEN instr(json_extract(payload, '$.tool_input.command'), ' ') > 0 
-                         THEN instr(json_extract(payload, '$.tool_input.command'), ' ') - 1 
-                         ELSE length(json_extract(payload, '$.tool_input.command')) END)
-                    END
-                ) STORED,
+                transcript_path TEXT GENERATED ALWAYS AS (json_extract(payload, '$.transcript_path')) STORED,
                 
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )",
@@ -102,17 +111,64 @@ impl Database {
         )?;
 
         self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_tool_command ON tool_events(tool_name, command)",
+            "CREATE INDEX IF NOT EXISTS idx_tool_name ON tool_events(tool_name)",
             [],
         )?;
 
         self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_command_word ON tool_events(command_word) WHERE tool_name = 'Bash'",
+            "CREATE INDEX IF NOT EXISTS idx_hook_event_name ON tool_events(hook_event_name)",
             [],
         )?;
 
         self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_timestamp ON tool_events(timestamp) WHERE timestamp IS NOT NULL",
+            "CREATE INDEX IF NOT EXISTS idx_created_at ON tool_events(created_at)",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cwd ON tool_events(cwd)",
+            [],
+        )?;
+
+        // Create schema-as-data tables
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS tool_schemas (
+                tool_name TEXT NOT NULL,
+                hook_event TEXT NOT NULL,
+                schema_version TEXT NOT NULL,
+                schema_json TEXT NOT NULL,
+                category TEXT,
+                description TEXT,
+                common_fields TEXT,
+                
+                -- Generated filename using our naming convention
+                file_name TEXT GENERATED ALWAYS AS (
+                    lower(tool_name) || '-' || lower(replace(hook_event, 'ToolUse', '_tool_use')) || '.json'
+                ) STORED,
+                
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (tool_name, hook_event, schema_version)
+            )",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_versions (
+                tool_name TEXT NOT NULL,
+                hook_event TEXT NOT NULL,
+                version TEXT NOT NULL,
+                active_from DATE NOT NULL,
+                active_to DATE,
+                notes TEXT,
+                PRIMARY KEY (tool_name, hook_event, version),
+                FOREIGN KEY (tool_name, hook_event, version) REFERENCES tool_schemas(tool_name, hook_event, schema_version)
+            )",
+            [],
+        )?;
+
+        // Create index for schema lookups
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_schema_active ON schema_versions(tool_name, hook_event, active_from, active_to)",
             [],
         )?;
 
@@ -334,55 +390,56 @@ mod tests {
     #[test]
     fn test_generated_columns() {
         let db = create_test_db();
-        let json_payload = r#"{"session_id":"test123","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"ls -la","description":"list files"},"timestamp":"2025-08-02T10:30:00Z"}"#;
+        let json_payload = r#"{"session_id":"test123","hook_event_name":"PostToolUse","tool_name":"Bash","cwd":"/home/user","transcript_path":"/path/to/transcript.jsonl","tool_input":{"command":"ls -la","description":"list files"}}"#;
 
         db.insert_event(json_payload).unwrap();
 
-        // Query the generated columns
-        let mut stmt = db.conn.prepare("SELECT hook_event_name, tool_name, command, description, timestamp, command_word FROM tool_events WHERE session_id = ?1").unwrap();
+        // Query the V2 generated columns (only stable hook contract fields)
+        let mut stmt = db.conn.prepare("SELECT hook_event_name, tool_name, cwd, transcript_path FROM tool_events WHERE session_id = ?1").unwrap();
         let row = stmt
             .query_row(["test123"], |row| {
                 Ok((
                     row.get::<_, String>(0)?, // hook_event_name
                     row.get::<_, String>(1)?, // tool_name
-                    row.get::<_, String>(2)?, // command
-                    row.get::<_, String>(3)?, // description
-                    row.get::<_, Option<String>>(4)?, // timestamp
-                    row.get::<_, Option<String>>(5)?, // command_word
+                    row.get::<_, String>(2)?, // cwd
+                    row.get::<_, String>(3)?, // transcript_path
                 ))
             })
             .unwrap();
 
         assert_eq!(row.0, "PostToolUse");
         assert_eq!(row.1, "Bash");
-        assert_eq!(row.2, "ls -la");
-        assert_eq!(row.3, "list files");
-        assert_eq!(row.4, Some("2025-08-02T10:30:00Z".to_string()));
-        assert_eq!(row.5, Some("ls".to_string())); // First word of command
+        assert_eq!(row.2, "/home/user");
+        assert_eq!(row.3, "/path/to/transcript.jsonl");
     }
 
     #[test]
-    fn test_command_word_extraction() {
+    fn test_json_extraction_at_runtime() {
         let db = create_test_db();
 
         let test_cases = vec![
-            (r#"{"session_id":"test1","tool_name":"Bash","tool_input":{"command":"ls -la"}}"#, "ls"),
-            (r#"{"session_id":"test2","tool_name":"Bash","tool_input":{"command":"git status"}}"#, "git"),
-            (r#"{"session_id":"test3","tool_name":"Bash","tool_input":{"command":"echo"}}"#, "echo"),
+            (r#"{"session_id":"test1","tool_name":"Bash","hook_event_name":"PreToolUse","cwd":"/home","transcript_path":"/path","tool_input":{"command":"ls -la"}}"#, "ls -la"),
+            (r#"{"session_id":"test2","tool_name":"Edit","hook_event_name":"PreToolUse","cwd":"/home","transcript_path":"/path","tool_input":{"file_path":"/test.txt"}}"#, "/test.txt"),
         ];
 
-        for (i, (payload, expected_word)) in test_cases.iter().enumerate() {
+        for (payload, _expected_value) in test_cases.iter() {
             db.insert_event(payload).unwrap();
-            
-            let session_id = format!("test{}", i + 1);
-            let command_word: String = db.conn.query_row(
-                "SELECT command_word FROM tool_events WHERE session_id = ?1",
-                [&session_id],
-                |row| row.get(0)
-            ).unwrap();
-            
-            assert_eq!(command_word, *expected_word);
         }
+        
+        // Test runtime JSON extraction (how analysis is done in V2)
+        let bash_command: String = db.conn.query_row(
+            "SELECT json_extract(payload, '$.tool_input.command') FROM tool_events WHERE session_id = 'test1'",
+            [],
+            |row| row.get(0)
+        ).unwrap();
+        assert_eq!(bash_command, "ls -la");
+
+        let file_path: String = db.conn.query_row(
+            "SELECT json_extract(payload, '$.tool_input.file_path') FROM tool_events WHERE session_id = 'test2'", 
+            [],
+            |row| row.get(0)
+        ).unwrap();
+        assert_eq!(file_path, "/test.txt");
     }
 
     #[test]
@@ -423,28 +480,38 @@ mod tests {
         let db = create_test_db();
 
         let test_cases = vec![
-            // Missing command field
-            (r#"{"session_id":"test1","tool_name":"Read","tool_input":{"file_path":"/test"}}"#, None, None),
-            // Empty command - command_word will be empty string too since substr of empty is empty
-            (r#"{"session_id":"test2","tool_name":"Bash","tool_input":{"command":""}}"#, Some(""), Some("")),
-            // Single word command  
-            (r#"{"session_id":"test3","tool_name":"Bash","tool_input":{"command":"pwd"}}"#, Some("pwd"), Some("pwd")),
-            // Command with multiple spaces
-            (r#"{"session_id":"test4","tool_name":"Bash","tool_input":{"command":"find . -name test"}}"#, Some("find . -name test"), Some("find")),
+            // Missing optional fields (V2 focuses on stable hook contract fields)
+            (r#"{"session_id":"test1","tool_name":"Read","hook_event_name":"PreToolUse","tool_input":{"file_path":"/test"}}"#, "Read", "PreToolUse"),
+            // Empty cwd field
+            (r#"{"session_id":"test2","tool_name":"Bash","hook_event_name":"PostToolUse","cwd":"","tool_input":{"command":"pwd"}}"#, "Bash", "PostToolUse"),
+            // Missing transcript_path (optional in some contexts)
+            (r#"{"session_id":"test3","tool_name":"Edit","hook_event_name":"PreToolUse","cwd":"/home","tool_input":{"file_path":"/test.txt"}}"#, "Edit", "PreToolUse"),
         ];
 
-        for (i, (payload, expected_command, expected_word)) in test_cases.iter().enumerate() {
+        for (i, (payload, expected_tool, expected_hook)) in test_cases.iter().enumerate() {
             db.insert_event(payload).unwrap();
             
             let session_id = format!("test{}", i + 1);
+            
+            // Test V2 generated columns (stable hook contract fields)
             let result = db.conn.query_row(
-                "SELECT command, command_word FROM tool_events WHERE session_id = ?1",
+                "SELECT tool_name, hook_event_name FROM tool_events WHERE session_id = ?1",
                 [&session_id],
-                |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?))
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             ).unwrap();
             
-            assert_eq!(result.0.as_deref(), *expected_command);
-            assert_eq!(result.1.as_deref(), *expected_word);
+            assert_eq!(result.0, *expected_tool);
+            assert_eq!(result.1, *expected_hook);
+            
+            // Test runtime JSON extraction for tool-specific fields (V2 approach)
+            if i == 1 { // Test Bash command extraction
+                let command: String = db.conn.query_row(
+                    "SELECT json_extract(payload, '$.tool_input.command') FROM tool_events WHERE session_id = ?1",
+                    [&session_id],
+                    |row| row.get(0)
+                ).unwrap();
+                assert_eq!(command, "pwd");
+            }
         }
     }
 
@@ -459,9 +526,10 @@ mod tests {
         
         let expected_indexes = vec![
             "idx_session_id",
-            "idx_tool_command", 
-            "idx_command_word",
-            "idx_timestamp"
+            "idx_tool_name",
+            "idx_hook_event_name",
+            "idx_created_at",
+            "idx_cwd"
         ];
         
         for expected in &expected_indexes {
@@ -489,23 +557,38 @@ mod tests {
         
         db.insert_event(real_json).unwrap();
         
+        // Test V2 generated columns (stable hook contract fields)
         let result = db.conn.query_row(
-            "SELECT hook_event_name, tool_name, cwd, command, command_word FROM tool_events WHERE session_id = ?1",
+            "SELECT hook_event_name, tool_name, cwd, transcript_path FROM tool_events WHERE session_id = ?1",
             ["c8f372b2-fe16-4f10-9247-05ff4f3d4c77"],
             |row| Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?, 
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
             ))
         ).unwrap();
         
         assert_eq!(result.0, "PreToolUse");
         assert_eq!(result.1, "Bash");
         assert_eq!(result.2, "/Users/test/project");
-        assert_eq!(result.3, "cargo test");
-        assert_eq!(result.4, "cargo");
+        assert_eq!(result.3, "/Users/test/.claude/projects/test.jsonl");
+        
+        // Test runtime JSON extraction for tool-specific fields (V2 approach)
+        let command: String = db.conn.query_row(
+            "SELECT json_extract(payload, '$.tool_input.command') FROM tool_events WHERE session_id = ?1",
+            ["c8f372b2-fe16-4f10-9247-05ff4f3d4c77"],
+            |row| row.get(0)
+        ).unwrap();
+        assert_eq!(command, "cargo test");
+        
+        // Test extracting command word using SQLite substring functions (V2 approach)
+        let command_word: String = db.conn.query_row(
+            "SELECT CASE WHEN instr(json_extract(payload, '$.tool_input.command'), ' ') > 0 THEN substr(json_extract(payload, '$.tool_input.command'), 1, instr(json_extract(payload, '$.tool_input.command'), ' ') - 1) ELSE json_extract(payload, '$.tool_input.command') END FROM tool_events WHERE session_id = ?1",
+            ["c8f372b2-fe16-4f10-9247-05ff4f3d4c77"],
+            |row| row.get(0)
+        ).unwrap();
+        assert_eq!(command_word, "cargo");
     }
 
     #[test]
@@ -601,16 +684,24 @@ mod tests {
         // Create a large command string
         let large_command = "x".repeat(10000);
         let large_payload = format!(
-            r#"{{"session_id":"large_test","tool_name":"Bash","tool_input":{{"command":"{}","description":"Large command test"}}}}"#,
+            r#"{{"session_id":"large_test","tool_name":"Bash","hook_event_name":"PreToolUse","cwd":"/home","transcript_path":"/path/to/transcript.jsonl","tool_input":{{"command":"{}","description":"Large command test"}}}}"#,
             large_command
         );
         
         let result = db.insert_event(&large_payload);
         assert!(result.is_ok());
         
-        // Verify it was stored correctly
+        // Verify V2 generated columns work with large payloads
+        let tool_name: String = db.conn.query_row(
+            "SELECT tool_name FROM tool_events WHERE session_id = 'large_test'",
+            [],
+            |row| row.get(0)
+        ).unwrap();
+        assert_eq!(tool_name, "Bash");
+        
+        // Verify large command was stored correctly using runtime JSON extraction (V2 approach)
         let stored_command: String = db.conn.query_row(
-            "SELECT command FROM tool_events WHERE session_id = 'large_test'",
+            "SELECT json_extract(payload, '$.tool_input.command') FROM tool_events WHERE session_id = 'large_test'",
             [],
             |row| row.get(0)
         ).unwrap();
@@ -626,11 +717,17 @@ mod tests {
         let result = db.insert_event(unicode_payload);
         assert!(result.is_ok());
         
-        // Verify Unicode was preserved
-        let (command, description): (String, String) = db.conn.query_row(
-            "SELECT command, description FROM tool_events WHERE session_id = 'unicode_test'",
+        // Verify Unicode was preserved using runtime JSON extraction (V2 approach)
+        let command: String = db.conn.query_row(
+            "SELECT json_extract(payload, '$.tool_input.command') FROM tool_events WHERE session_id = 'unicode_test'",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?))
+            |row| row.get(0)
+        ).unwrap();
+        
+        let description: String = db.conn.query_row(
+            "SELECT json_extract(payload, '$.tool_input.description') FROM tool_events WHERE session_id = 'unicode_test'",
+            [],
+            |row| row.get(0)
         ).unwrap();
         
         assert_eq!(command, "echo '你好世界 🌍'");
@@ -670,14 +767,17 @@ mod tests {
             |row| row.get(0)
         ).unwrap();
         
-        // Verify the table contains generated columns in the CREATE statement
+        // Verify the table contains V2 generated columns (stable hook contract fields only)
         assert!(create_sql.contains("hook_event_name TEXT GENERATED ALWAYS AS"));
         assert!(create_sql.contains("tool_name TEXT GENERATED ALWAYS AS"));
         assert!(create_sql.contains("cwd TEXT GENERATED ALWAYS AS"));
-        assert!(create_sql.contains("command TEXT GENERATED ALWAYS AS"));
-        assert!(create_sql.contains("description TEXT GENERATED ALWAYS AS"));
-        assert!(create_sql.contains("timestamp TEXT GENERATED ALWAYS AS"));
-        assert!(create_sql.contains("command_word TEXT GENERATED ALWAYS AS"));
+        assert!(create_sql.contains("transcript_path TEXT GENERATED ALWAYS AS"));
+        
+        // Verify V1 columns are NOT present in V2 schema
+        assert!(!create_sql.contains("command TEXT GENERATED ALWAYS AS"));
+        assert!(!create_sql.contains("description TEXT GENERATED ALWAYS AS"));
+        assert!(!create_sql.contains("timestamp TEXT GENERATED ALWAYS AS"));
+        assert!(!create_sql.contains("command_word TEXT GENERATED ALWAYS AS"));
         
         // Also verify basic columns exist
         let mut stmt = db.conn.prepare("PRAGMA table_info(tool_events)").unwrap();
@@ -696,33 +796,42 @@ mod tests {
     fn test_generated_column_expressions() {
         let db = create_test_db();
         
-        // Test that generated columns work correctly with various JSON structures
-        let test_payload = r#"{"session_id":"expr_test","hook_event_name":"TestEvent","tool_name":"TestTool","cwd":"/test/path","tool_input":{"command":"test command","description":"test desc"},"timestamp":"2025-08-02T12:00:00Z"}"#;
+        // Test that V2 generated columns work correctly with various JSON structures
+        let test_payload = r#"{"session_id":"expr_test","hook_event_name":"TestEvent","tool_name":"TestTool","cwd":"/test/path","transcript_path":"/path/to/transcript.jsonl","tool_input":{"command":"test command","description":"test desc"},"timestamp":"2025-08-02T12:00:00Z"}"#;
         
         db.insert_event(test_payload).unwrap();
         
-        // Verify all generated columns extracted correctly
+        // Verify V2 generated columns (stable hook contract fields only)
         let result = db.conn.query_row(
-            "SELECT hook_event_name, tool_name, cwd, command, description, timestamp, command_word FROM tool_events WHERE session_id = 'expr_test'",
+            "SELECT hook_event_name, tool_name, cwd, transcript_path FROM tool_events WHERE session_id = 'expr_test'",
             [],
             |row| Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, String>(6)?,
             ))
         ).unwrap();
         
         assert_eq!(result.0, "TestEvent");
         assert_eq!(result.1, "TestTool");
         assert_eq!(result.2, "/test/path");
-        assert_eq!(result.3, "test command");
-        assert_eq!(result.4, "test desc");
-        assert_eq!(result.5, "2025-08-02T12:00:00Z");
-        assert_eq!(result.6, "test");
+        assert_eq!(result.3, "/path/to/transcript.jsonl");
+        
+        // Test runtime JSON extraction for tool-specific fields (V2 approach)
+        let command: String = db.conn.query_row(
+            "SELECT json_extract(payload, '$.tool_input.command') FROM tool_events WHERE session_id = 'expr_test'",
+            [],
+            |row| row.get(0)
+        ).unwrap();
+        assert_eq!(command, "test command");
+        
+        let description: String = db.conn.query_row(
+            "SELECT json_extract(payload, '$.tool_input.description') FROM tool_events WHERE session_id = 'expr_test'",
+            [],
+            |row| row.get(0)
+        ).unwrap();
+        assert_eq!(description, "test desc");
     }
 
     #[test]
