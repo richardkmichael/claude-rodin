@@ -1,6 +1,17 @@
+//! Tool monitoring capture utility.
+//!
+//! This binary reads JSON tool event data from stdin and stores it in a SQLite database
+//! optimized for analysis by separate tools. Uses WAL mode for concurrent access.
+//!
+//! # Usage
+//!
+//! ```bash
+//! echo '{"session_id":"test","tool_name":"Bash"}' | tool-monitor /path/to/db
+//! ```
+
 mod db;
 
-use db::Database;
+use db::create_production_database;
 use std::env;
 use std::error::Error;
 use std::io::{self, Read};
@@ -25,7 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let database = Database::new(db_path)?;
+    let database = create_production_database(db_path)?;
     database.insert_event(input)?;
 
     Ok(())
