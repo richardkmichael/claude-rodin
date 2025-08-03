@@ -4,5 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled"], default-features = false }
 serde_json = "1.0"
+
+[profile.release]
+# Optimize for speed with some size benefits
+opt-level = 3       # Maximum speed optimization
+lto = true          # Enable Link Time Optimization (helps both speed and size)
+codegen-units = 1   # Better optimization (slight compile time cost)
+panic = 'abort'     # Abort on panic (faster than unwinding)
+strip = true        # Strip symbols (size benefit, no speed impact)
