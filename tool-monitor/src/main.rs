@@ -11,20 +11,24 @@
 
 mod db;
 
+use clap::Parser;
 use db::create_production_database;
-use std::env;
 use std::error::Error;
 use std::io::{self, Read};
 
+#[derive(Parser)]
+#[command(name = "tool-monitor")]
+#[command(version = env!("CARGO_PKG_VERSION"))]
+#[command(about = "Tool monitoring capture utility")]
+#[command(long_about = "Reads JSON tool event data from stdin and stores it in a SQLite database optimized for analysis by separate tools. Uses WAL mode for concurrent access.")]
+struct Args {
+    /// Path to SQLite database file
+    database_path: String,
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
-    let args: Vec<String> = env::args().collect();
-
-    if args.len() != 2 {
-        eprintln!("Usage: {} <database_path>", args[0]);
-        std::process::exit(1);
-    }
-
-    let db_path = &args[1];
+    let args = Args::parse();
+    let db_path = &args.database_path;
 
     let mut input = String::new();
     io::stdin().read_to_string(&mut input)?;
