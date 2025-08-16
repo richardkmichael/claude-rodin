@@ -1,6 +1,56 @@
 # Tool Monitor
 
-A SQLite-powered logger for analyzing Claude Code tool usage events. Captures JSON tool events from stdin and stores them for analysis.
+Store `PreToolUse` and `PostToolUse` hook payloads in SQLite for future analysis.
+
+## Quick Start
+
+### New Installations
+
+Install to `~/bin/claude-tool-monitor`:
+
+```bash
+cargo install --path . --root ~
+```
+
+Run `claude` and configure `/hooks`, or add to `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "claude-tool-monitor ~/.claude/tool-monitor.sqlite"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "claude-tool-monitor ~/.claude/tool-monitor.sqlite"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Update Installations
+```bash
+# Migrate the schema (creates automatic backup)
+python tools/migration/migrate_to_v2.py your_existing_monitor.db
+
+# Validate schemas work correctly
+python tools/validation/validate_against_schemas.py your_existing_monitor.db
+```
 
 ## Features
 
@@ -10,25 +60,6 @@ A SQLite-powered logger for analyzing Claude Code tool usage events. Captures JS
 - **JSON Schema validation**: Industry-standard validation using `uvx check-jsonschema`
 - **Migration tools**: Safe migration from V1 to V2 with automatic backups
 
-## Quick Start
-
-### For New Installations
-```bash
-# Build the tool
-cargo build --release
-
-# Process tool events
-echo '{"session_id":"abc","tool_name":"Bash","tool_input":{"command":"ls"}}' | ./target/release/tool-monitor monitor.db
-```
-
-### For Existing V1 Databases
-```bash
-# Migrate to Schema V2 (creates automatic backup)
-python tools/migration/migrate_to_v2.py your_existing_monitor.db
-
-# Validate schemas work correctly
-python tools/validation/validate_against_schemas.py your_existing_monitor.db
-```
 
 ## Database Schema
 
