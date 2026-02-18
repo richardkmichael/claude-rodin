@@ -61,7 +61,6 @@ Run with `-h` for help.
 | `find-sessions.sh` | List all claude-* sessions across sockets |
 | `wait-for-text.sh` | Poll pane for pattern with timeout |
 | `send-and-wait.sh` | Send command and wait for output |
-| `git-editor-claude.sh` | Blocking editor for git (READY/DONE marker protocol) |
 
 ## Sending commands
 
@@ -92,9 +91,7 @@ tmux -L $SOCKET send-keys -t $TARGET C-d   # EOF
   $SKILL_DIR/scripts/send-and-wait.sh -L $SOCKET -t $TARGET -c 'print(42)' -p '>>>' -l
   ```
 - lldb/gdb: Disable paging with `set pagination off`, break with `C-c`
-- Git with editor: See [interactive-git.md](interactive-git.md)
-  Common cases: `rebase -i`, `commit` without `-m`, pressing `e` in patch mode.
-  If git appears to wait for an editor, read the instructions and retry with GIT_EDITOR.
+- Git interactive operations: Use the `/git-interactive` skill, which builds on this one.
 
 ## Cleanup
 
