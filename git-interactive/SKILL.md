@@ -7,7 +7,8 @@ allowed-tools: "Read(//tmp/claude-edit-*/**), Edit(//tmp/claude-edit-*/**), Bash
 # git-interactive Skill
 
 Reshape and reorganize git commit history. This skill builds on the tmux skill
-— invoke `/tmux` first to get a terminal session, then follow these workflows.
+— use the tmux skill to start a `git` session, then follow these workflows.
+Use the returned `socket` as `$SOCKET` and `target` as `$TARGET` throughout.
 
 The goal is semantically atomic commits: each commit contains one logical change,
 described accurately, in a sensible sequence.
