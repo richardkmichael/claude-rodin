@@ -250,6 +250,25 @@ Always tell the user before aborting.
 
 ## Safety
 
+### Recovery tag
+
+Before any non-trivial rebase, create a throwaway tag as an instant recovery point:
+
+```bash
+git tag CLAUDE_WAS_HERE_<description>
+```
+
+Generate the description from context — the branch name, operation, or affected
+commits (e.g., `CLAUDE_WAS_HERE_squash_auth_commits`, `CLAUDE_WAS_HERE_split_config`).
+Keep it short and lowercase with underscores.
+
+If the rebase goes wrong: `git reset --hard CLAUDE_WAS_HERE_<description>`
+returns instantly — no reflog spelunking needed, no data loss.
+
+When done and satisfied with the result: `git tag -d CLAUDE_WAS_HERE_<description>`
+
+### Other rules
+
 - Never `git rm <file>` to remove from history — it deletes the working tree copy.
   To remove a file from a commit while keeping it locally: use `edit`, then
   `git reset HEAD~ -- <file>`, then `git commit --amend --no-edit`, then
