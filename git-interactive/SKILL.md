@@ -255,17 +255,25 @@ Always tell the user before aborting.
 Before any non-trivial rebase, create a throwaway tag as an instant recovery point:
 
 ```bash
-git tag CLAUDE_WAS_HERE_<description>
+git tag claude-was-here/<description>
 ```
 
 Generate the description from context — the branch name, operation, or affected
-commits (e.g., `CLAUDE_WAS_HERE_squash_auth_commits`, `CLAUDE_WAS_HERE_split_config`).
-Keep it short and lowercase with underscores.
+commits (e.g., `claude-was-here/squash-auth-commits`, `claude-was-here/split-config`).
+Keep it short and lowercase with hyphens.
 
-If the rebase goes wrong: `git reset --hard CLAUDE_WAS_HERE_<description>`
+If the rebase goes wrong: `git reset --hard claude-was-here/<description>`
 returns instantly — no reflog spelunking needed, no data loss.
 
-When done and satisfied with the result: `git tag -d CLAUDE_WAS_HERE_<description>`
+When done and satisfied with the result: `git tag -d claude-was-here/<description>`
+
+Never push these tags. They are local recovery points only:
+```bash
+# Safe push — explicitly excludes the namespace
+git push                          # fine: tags are not pushed by default
+git push --tags                   # NEVER use this — would push claude-was-here/* tags
+git push origin 'refs/tags/*'     # NEVER use this either
+```
 
 ### Other rules
 
