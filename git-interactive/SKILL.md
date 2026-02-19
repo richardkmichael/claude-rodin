@@ -202,51 +202,24 @@ Editing a hunk in CONTENT (`e`):
 
 ### Moving commits to a different base (rebase --onto)
 
-Use when you want to replay a range of commits onto a different branch or commit.
-
 ```bash
-# Move commits from <upstream>..<branch> onto <newbase>
 git rebase --onto <newbase> <upstream> [<branch>]
-```
 
-Examples:
-```bash
-# Move the last 3 commits from feature onto main
+# Example: move last 3 commits onto main
 git rebase --onto main HEAD~3 feature
-
-# Move a range between two hashes onto another branch
-git rebase --onto <newbase> <first-commit-to-move>^ <last-commit-to-move>
 ```
-
-After moving, the original commits still exist (visible in reflog) until GC.
 
 ### Multi-pass rebase
 
-Some reorganizations require multiple rebase passes — for example, split a commit
-in pass 1, then reorder the resulting commits in pass 2. This is normal and
-preferable to trying to do everything in one complex rebase.
-
-After each pass, review with `git log --oneline` before starting the next.
+Split in pass 1, reorder in pass 2. Preferable to one overly complex rebase.
+Review `git log --oneline` between passes.
 
 ## Conflict resolution
 
-When rebase stops with a conflict:
+`git status` shows conflicted files and rebase progress. Resolve conflicts, then
+`git add <file>` and `git rebase --continue` (may invoke `GIT_EDITOR`).
 
-```bash
-git status        # shows conflicted files and rebase progress
-```
-
-Resolve:
-1. Read the conflicted file — look for `<<<<<<<`, `=======`, `>>>>>>>`
-2. Edit to keep the correct content, remove all conflict markers
-3. `git add <file>`
-4. `git rebase --continue` — may invoke `GIT_EDITOR` for the commit message
-
-If the conflict is too complex or the rebase plan was wrong:
-```bash
-git rebase --abort    # returns to pre-rebase state
-```
-Always tell the user before aborting.
+Tell the user before running `git rebase --abort`.
 
 ## Safety
 
@@ -267,13 +240,7 @@ returns instantly — no reflog spelunking needed, no data loss.
 
 When done and satisfied with the result: `git tag -d claude-was-here/<description>`
 
-Never push these tags. They are local recovery points only:
-```bash
-# Safe push — explicitly excludes the namespace
-git push                          # fine: tags are not pushed by default
-git push --tags                   # NEVER use this — would push claude-was-here/* tags
-git push origin 'refs/tags/*'     # NEVER use this either
-```
+Never push these tags (`git push --tags` would include them). Local recovery only.
 
 ### Other rules
 
@@ -289,15 +256,14 @@ git push origin 'refs/tags/*'     # NEVER use this either
 
 ## Commit message discipline
 
-- Each message describes one logical change
-- Present tense imperative ("Add X", "Fix Y", "Remove Z")
-- When squashing: write a message covering all the squashed changes, not just one
-- `fixup` silently discards the folded commit's message — use it only when the
-  parent commit's message already covers the change
+- When squashing: write a message covering all squashed changes, not just the top one
+- Use `fixup` only when the parent commit's message already covers the folded change
 
 ## Cleanup
 
 ```bash
 rm -rf "$EDIT_DIR"
-$TMUX_SKILL_DIR/scripts/stop-session.sh -i ${CLAUDE_SESSION_ID} -s git
 ```
+
+Stop the git tmux server using the tmux skill's `stop-session.sh`
+(use the base directory shown when `/tmux` loaded).
