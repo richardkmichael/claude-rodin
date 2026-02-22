@@ -1,6 +1,18 @@
-# Claude Code Tool Hook Schemas
+# Claude Code Hooks
 
-This document provides comprehensive JSON schemas for all Claude Code tool hooks captured through PreToolUse and PostToolUse events.
+All Claude Code hooks are documented at: https://docs.anthropic.com/en/docs/claude-code/hooks
+
+There are hook events, inputs and outputs.  Hook outputs control Claude
+
+This project uses the two tool-specific hook events: `PreToolUse` and `PostToolUse`, capturing
+payloads to monitor Claude's tool usage-- requests and responses.
+
+# Tool Hook Schemas
+
+The `PreToolUse` and `PostToolUse` events have a common base schema, with two varying properties:
+
+- `tool_input` - provided to both `PreToolUse` and `PostToolUse` but varys by specific tool (`tool_name`)
+- `tool_response` - provided to `PostToolUse` only, varies by specific tool (`tool_name`)
 
 ## Base Schema
 

@@ -1,6 +1,11 @@
 # Tool Monitor
 
-Store `PreToolUse` and `PostToolUse` hook payloads in SQLite for future analysis.
+This project implements two Claude Code hooks `PreToolUse` and `PostToolUse` to store hook payloads
+in SQLite for future analysis of Claude's tool usage.
+
+The hooks implemented do not *alter* tool calls, they simply return exit code 0 (success) to be
+transparent and only capture the hook payload.  In this hook usage, `stdout` is shown to the user in
+Claude Code "transcript mode" (CTRL-R).
 
 ## Quick Start
 
@@ -12,7 +17,7 @@ Install to `~/bin/claude-tool-monitor`:
 cargo install --path . --root ~
 ```
 
-Run `claude` and configure `/hooks`, or add to `.claude/settings.json`:
+Run `claude` and configure `/hooks`, or directly edit `.claude/settings.json`:
 
 ```json
 {
