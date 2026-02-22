@@ -1,18 +1,28 @@
 # Claude Code Hooks
 
-All Claude Code hooks are documented at: https://docs.anthropic.com/en/docs/claude-code/hooks
+All Claude Code hooks are documented at: https://code.claude.com/docs/en/hooks
 
 There are hook events, inputs and outputs.  Hook outputs control Claude
 
-This project uses the two tool-specific hook events: `PreToolUse` and `PostToolUse`, capturing
-payloads to monitor Claude's tool usage-- requests and responses.
+This project captures four tool-specific hook events:
+
+- `PreToolUse` - before a tool call executes
+- `PostToolUse` - after a tool call succeeds
+- `PostToolUseFailure` - after a tool call fails
+- `PermissionRequest` - when Claude requests permission to use a tool
 
 # Tool Hook Schemas
 
-The `PreToolUse` and `PostToolUse` events have a common base schema, with two varying properties:
+> **Note:** Official documentation has been observed to contain inaccuracies. Treat all
+> schemas here as starting points and verify empirically against real captured payloads
+> before relying on them for validation or migration work.
 
-- `tool_input` - provided to both `PreToolUse` and `PostToolUse` but varys by specific tool (`tool_name`)
-- `tool_response` - provided to `PostToolUse` only, varies by specific tool (`tool_name`)
+All four events share a common base, with varying properties per event:
+
+- `tool_input` - present in all four events; varies by `tool_name`
+- `tool_response` - present in `PostToolUse` only; varies by `tool_name`
+- `error` and `is_interrupt` - present in `PostToolUseFailure` only
+- `permission_suggestions` - present in `PermissionRequest` only
 
 ## Base Schema
 
@@ -27,6 +37,7 @@ All hook payloads extend this common base schema:
     "session_id": {"type": "string"},
     "transcript_path": {"type": "string"},
     "cwd": {"type": "string"},
+    "permission_mode": {"type": "string"},
     "hook_event_name": {"const": "PreToolUse"},
     "tool_name": {"type": "string"},
     "tool_input": {"type": "object"}
@@ -44,6 +55,7 @@ All hook payloads extend this common base schema:
     "session_id": {"type": "string"},
     "transcript_path": {"type": "string"},
     "cwd": {"type": "string"},
+    "permission_mode": {"type": "string"},
     "hook_event_name": {"const": "PostToolUse"},
     "tool_name": {"type": "string"},
     "tool_input": {"type": "object"},
@@ -58,6 +70,74 @@ All hook payloads extend this common base schema:
   "required": ["session_id", "transcript_path", "cwd", "hook_event_name", "tool_name", "tool_input", "tool_response"]
 }
 ```
+
+### PostToolUseFailure Base Schema
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "session_id": {"type": "string"},
+    "transcript_path": {"type": "string"},
+    "cwd": {"type": "string"},
+    "permission_mode": {"type": "string"},
+    "hook_event_name": {"const": "PostToolUseFailure"},
+    "tool_name": {"type": "string"},
+    "tool_input": {"type": "object"},
+    "tool_use_id": {"type": "string"},
+    "error": {"type": "string"},
+    "is_interrupt": {"type": "boolean"}
+  },
+  "required": ["session_id", "transcript_path", "cwd", "hook_event_name", "tool_name", "tool_input", "error"]
+}
+```
+
+Note: no `tool_response` (the tool failed before returning one). `is_interrupt` is optional and
+indicates the failure was caused by user interruption rather than an error.
+
+### PermissionRequest Base Schema
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "session_id": {"type": "string"},
+    "transcript_path": {"type": "string"},
+    "cwd": {"type": "string"},
+    "permission_mode": {"type": "string"},
+    "hook_event_name": {"const": "PermissionRequest"},
+    "tool_name": {"type": "string"},
+    "tool_input": {"type": "object"},
+    "permission_suggestions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {"type": "string"},
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "toolName": {"type": "string"},
+                "ruleContent": {"type": "string"}
+              }
+            }
+          },
+          "behavior": {"type": "string"},
+          "destination": {"type": "string"}
+        }
+      }
+    }
+  },
+  "required": ["session_id", "transcript_path", "cwd", "hook_event_name", "tool_name", "tool_input"]
+}
+```
+
+Note: no `tool_use_id` (permission is requested before execution). `permission_suggestions`
+contains the "always allow" options that would appear in the interactive permission dialog.
+Empirically observed item structure uses `type: "addRules"` with `rules`, `behavior`, and
+`destination` fields (official docs show a different structure; verify empirically).
 
 ## Tool-Specific Input/Output Schemas
 
@@ -403,10 +483,11 @@ string
 1. **session_id**: Unique identifier for the Claude Code session
 2. **transcript_path**: Path to the session transcript file 
 3. **cwd**: Current working directory when tool was executed
-4. **hook_event_name**: Either "PreToolUse" or "PostToolUse"
-5. **tool_name**: Name of the tool being executed
-6. **tool_input**: Tool-specific input parameters (schemas above)
-7. **tool_response**: Tool-specific response data (only in PostToolUse, schemas above)
+4. **hook_event_name**: One of "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest"
+5. **permission_mode**: Current permission mode ("default", "plan", "acceptEdits", "dontAsk", "bypassPermissions")
+6. **tool_name**: Name of the tool being executed
+7. **tool_input**: Tool-specific input parameters (schemas above)
+8. **tool_response**: Tool-specific response data (only in PostToolUse, schemas above)
 
 ## Schema Version
 

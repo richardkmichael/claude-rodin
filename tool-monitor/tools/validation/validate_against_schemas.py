@@ -44,11 +44,18 @@ def extract_sample_payload(conn: sqlite3.Connection, tool_name: str, hook_event:
     row = cursor.fetchone()
     return row['payload'] if row else None
 
+_HOOK_EVENT_SUFFIX = {
+    "PreToolUse":         "pre_tool_use",
+    "PostToolUse":        "post_tool_use",
+    "PostToolUseFailure": "post_tool_use_failure",
+    "PermissionRequest":  "permission_request",
+}
+
 def generate_schema_filename(tool_name: str, hook_event: str) -> str:
     """Generate schema filename using our naming convention."""
-    hook_snake = hook_event.replace("ToolUse", "_tool_use")
+    hook_snake = _HOOK_EVENT_SUFFIX.get(hook_event, hook_event.lower())
     tool_lower = tool_name.lower().replace(" ", "_")
-    return f"{tool_lower}-{hook_snake.lower()}.json"
+    return f"{tool_lower}-{hook_snake}.json"
 
 def validate_with_uvx(schema_file: str, data_file: str) -> Tuple[bool, str]:
     """Validate data against schema using uvx check-jsonschema."""
@@ -96,7 +103,7 @@ def validate_all_tools(db_path: str, schema_dir: str = "schemas"):
     for tool_name, count in usage_stats.items():
         print(f"## Validating {tool_name} ({count} events)")
         
-        for hook_event in ["PreToolUse", "PostToolUse"]:
+        for hook_event in ["PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest"]:
             validation_results["total_tools"] += 1
             
             # Generate schema filename
