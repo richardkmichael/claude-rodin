@@ -127,6 +127,10 @@ def load_schema_files(schema_dir: str = "hook_schemas") -> List[Dict]:
                 hook_event = "PreToolUse"
             elif hook_part == "post_tool_use":
                 hook_event = "PostToolUse"
+            elif hook_part == "post_tool_use_failure":
+                hook_event = "PostToolUseFailure"
+            elif hook_part == "permission_request":
+                hook_event = "PermissionRequest"
             else:
                 continue
             

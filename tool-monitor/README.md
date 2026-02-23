@@ -1,11 +1,10 @@
 # Tool Monitor
 
-This project implements two Claude Code hooks `PreToolUse` and `PostToolUse` to store hook payloads
-in SQLite for future analysis of Claude's tool usage.
+This project implements four Claude Code hooks — `PreToolUse`, `PostToolUse`, `PostToolUseFailure`,
+and `PermissionRequest` — to store hook payloads in SQLite for future analysis of Claude's tool usage.
 
-The hooks implemented do not *alter* tool calls, they simply return exit code 0 (success) to be
-transparent and only capture the hook payload.  In this hook usage, `stdout` is shown to the user in
-Claude Code "transcript mode" (CTRL-R).
+The hooks do not *alter* tool calls; they return exit code 0 (success) transparently and only capture
+the hook payload.  In transcript mode (CTRL-R), `stdout` from the hook is shown to the user.
 
 ## Quick Start
 
@@ -25,23 +24,25 @@ Run `claude` and configure `/hooks`, or directly edit `.claude/settings.json`:
     "PreToolUse": [
       {
         "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "claude-tool-monitor ~/.claude/tool-monitor.sqlite"
-          }
-        ]
+        "hooks": [{"type": "command", "command": "claude-tool-monitor ~/.claude/tool-monitor.sqlite"}]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "claude-tool-monitor ~/.claude/tool-monitor.sqlite"
-          }
-        ]
+        "hooks": [{"type": "command", "command": "claude-tool-monitor ~/.claude/tool-monitor.sqlite"}]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [{"type": "command", "command": "claude-tool-monitor ~/.claude/tool-monitor.sqlite"}]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [{"type": "command", "command": "claude-tool-monitor ~/.claude/tool-monitor.sqlite"}]
       }
     ]
   }
@@ -50,8 +51,11 @@ Run `claude` and configure `/hooks`, or directly edit `.claude/settings.json`:
 
 ### Update Installations
 ```bash
-# Migrate the schema (creates automatic backup)
+# Migrate V1 → V2 if needed
 python tools/migration/migrate_to_v2.py your_existing_monitor.db
+
+# Migrate V2 → V3 (adds FTS5 search, expression indexes, expanded hook coverage)
+python tools/migration/migrate_to_v3.py your_existing_monitor.db
 
 # Validate schemas work correctly
 python tools/validation/validate_against_schemas.py your_existing_monitor.db
@@ -59,41 +63,64 @@ python tools/validation/validate_against_schemas.py your_existing_monitor.db
 
 ## Features
 
-- **Schema V2**: Minimal, future-proof database schema with JSON Schema validation
-- **Fast Rust binary**: Processes tool events with excellent performance
-- **SQLite storage**: WAL mode for concurrent access, generated columns for stable fields
-- **JSON Schema validation**: Industry-standard validation using `uvx check-jsonschema`
-- **Migration tools**: Safe migration from V1 to V2 with automatic backups
+- Schema V3: FTS5 trigram search, expression indexes, four hook events
+- Fast Rust binary: processes tool events with excellent performance
+- SQLite storage: WAL mode for concurrent access, generated columns for stable fields
+- JSON Schema validation: industry-standard validation using `uvx check-jsonschema`
+- Migration tools: safe V1→V2 and V2→V3 migration with automatic backups
 
 
 ## Database Schema
 
-### Schema V2 Design
-- **`schema_info`**: Database schema version and metadata
-- **`tool_events`**: Minimal table with stable hook fields + full JSON payload
-- **`tool_schemas`**: 28 complete JSON Schema documents (one for each tool/hook combination)
-- **`schema_versions`**: Tool schema evolution tracking
+### Schema V3 Design
+- `schema_info`: database schema version, metadata, and contract_fields list
+- `tool_events`: minimal table with stable hook fields + full JSON payload
+- `tool_schemas`: JSON Schema documents for each tool/hook combination (including PostToolUseFailure and PermissionRequest)
+- `schema_versions`: tool schema evolution tracking
+- FTS5 virtual tables: fast wildcard/substring search over key tool_input fields
+- Expression indexes: fast equality lookups on tool_input fields
 
-### Generated Columns (Stable Fields Only)
-- `hook_event_name` - PreToolUse/PostToolUse
-- `tool_name` - Name of the tool (Bash, Edit, etc.)
-- `cwd` - Current working directory
-- `transcript_path` - Path to session transcript
+### Generated Columns (Stable Hook Contract Fields)
+- `hook_event_name` - PreToolUse/PostToolUse/PostToolUseFailure/PermissionRequest
+- `tool_name` - name of the tool (Bash, Edit, etc.)
+- `cwd` - current working directory
+- `transcript_path` - path to session transcript
+
+### FTS5 Tables (Wildcard Search)
+Use `JOIN fts_bash_command ON fts_bash_command.event_id = tool_events.id WHERE fts_bash_command.command MATCH '"term"'`
+
+| Table | Field | Tools |
+|---|---|---|
+| `fts_bash_command` | command | Bash |
+| `fts_file_path` | file_path | Read, Write, Edit |
+| `fts_grep_pattern` | pattern | Grep |
+| `fts_glob_pattern` | pattern | Glob |
+| `fts_url` | url | WebFetch |
+| `fts_search_query` | query | WebSearch |
+
+Note: special characters (`.`, `-`, `/`) require phrase quoting: `MATCH '"term.ext"'`
 
 ## JSON Schema Files
 
-The `schemas/` directory contains 28 validated JSON Schema files:
-- **Naming**: `{toolname}-{hook_event}.json` (e.g., `bash-pre_tool_use.json`)
-- **Validation**: All schemas tested against real Claude Code data
-- **Coverage**: 14 tools × 2 hook events (PreToolUse + PostToolUse)
+The `hook_schemas/` directory contains JSON Schema files for tool validation:
+- Naming: `{toolname}-{hook_event}.json` (e.g., `bash-pre_tool_use.json`)
+- Coverage: 14 tools × 2 hook events (PreToolUse + PostToolUse)
+- Additional PostToolUseFailure and PermissionRequest schemas stored in `tool_schemas` table
 
 ## Tools
 
 ### `tools/migration/migrate_to_v2.py`
-Migrates existing V1 databases to V2 schema. Creates backups automatically.
+Migrates V1 databases to V2 schema. Creates backups automatically.
 
 ```bash
 python tools/migration/migrate_to_v2.py monitor.db
+```
+
+### `tools/migration/migrate_to_v3.py`
+Migrates V2 databases to V3 schema. Creates backups automatically.
+
+```bash
+python tools/migration/migrate_to_v3.py monitor.db
 ```
 
 ### `tools/validation/validate_against_schemas.py`
@@ -108,37 +135,26 @@ python tools/validation/validate_against_schemas.py monitor.db Bash PreToolUse
 ```
 
 ### `tools/validation/derive_schemas_from_payloads.py`
-Analyzes actual payloads to derive JSON schema structures. Useful when Claude Code tools change or for documenting new tools.
+Analyzes actual payloads to derive JSON schema structures.
 
 ```bash
-# Analyze all tools and show derived structures
 python tools/validation/derive_schemas_from_payloads.py monitor.db
-
-# Analyze specific tool
 python tools/validation/derive_schemas_from_payloads.py monitor.db --tool Bash
-
-# Compare derived schemas with existing schema files
 python tools/validation/derive_schemas_from_payloads.py monitor.db --compare
 ```
 
 ### `tools/validation/check_schema_version.py`
-Checks database schema version and compatibility with current tools.
+Checks database schema version and compatibility.
 
 ```bash
-# Check schema version and compatibility
 python tools/validation/check_schema_version.py monitor.db
 ```
 
 ## Building
 
 ```bash
-# Development
 cargo build
-
-# Optimized release
 cargo build --release
-
-# Run tests
 cargo test
 ```
 
@@ -146,24 +162,32 @@ cargo test
 
 ```sql
 -- Tool usage statistics
-SELECT tool_name, COUNT(*) 
-FROM tool_events 
-GROUP BY tool_name 
-ORDER BY COUNT(*) DESC;
+SELECT tool_name, COUNT(*)
+  FROM tool_events
+ GROUP BY tool_name
+ ORDER BY COUNT(*) DESC;
 
--- Extract bash commands (runtime JSON extraction)
-SELECT json_extract(payload, '$.tool_input.command') as command
-FROM tool_events 
-WHERE tool_name = 'Bash';
+-- Bash commands containing a pattern (FTS5 wildcard search)
+SELECT e.created_at, json_extract(e.payload, '$.tool_input.command')
+  FROM tool_events e
+  JOIN fts_bash_command f ON f.event_id = e.id
+ WHERE f.command MATCH '"git"'
+ ORDER BY e.created_at DESC;
+
+-- Files accessed today (equality lookup via expression index)
+SELECT json_extract(payload, '$.tool_input.file_path'), created_at
+  FROM tool_events
+ WHERE tool_name IN ('Read', 'Write', 'Edit')
+   AND date(created_at) = date('now');
 
 -- Available schemas
-SELECT tool_name, hook_event, file_name, category
-FROM tool_schemas 
-ORDER BY category, tool_name;
+SELECT tool_name, hook_event, category
+  FROM tool_schemas
+ ORDER BY category, tool_name;
 ```
 
 ## Dependencies
 
-- **Runtime**: None (SQLite bundled)
-- **Validation**: `uvx` (for JSON Schema validation)
-- **Migration**: Python 3.7+
+- Runtime: none (SQLite bundled)
+- Validation: `uvx` (for JSON Schema validation)
+- Migration: Python 3.7+

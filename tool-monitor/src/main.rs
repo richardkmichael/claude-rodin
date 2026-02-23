@@ -12,7 +12,7 @@
 mod db;
 
 use clap::Parser;
-use db::create_production_database;
+use db::create_database;
 use std::error::Error;
 use std::io::{self, Read};
 
@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let database = create_production_database(db_path)?;
+    let database = create_database(db_path)?;
     database.insert_event(input)?;
 
     Ok(())

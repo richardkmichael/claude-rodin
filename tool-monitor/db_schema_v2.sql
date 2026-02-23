@@ -30,7 +30,7 @@ CREATE TABLE tool_events (
 -- Store complete tool schemas as versioned data
 CREATE TABLE tool_schemas (
     tool_name TEXT NOT NULL,
-    hook_event TEXT NOT NULL,        -- 'PreToolUse' or 'PostToolUse'
+    hook_event TEXT NOT NULL,        -- 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', or 'PermissionRequest'
     schema_version TEXT NOT NULL,
     schema_json TEXT NOT NULL,       -- Complete JSON Schema document
     category TEXT,                   -- File, Search, System, Web, Workflow
@@ -49,7 +49,7 @@ CREATE TABLE tool_schemas (
 -- Track which schema version was active when (for handling schema evolution)
 CREATE TABLE schema_versions (
     tool_name TEXT NOT NULL,
-    hook_event TEXT NOT NULL,        -- 'PreToolUse' or 'PostToolUse'
+    hook_event TEXT NOT NULL,        -- 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', or 'PermissionRequest'
     version TEXT NOT NULL,
     active_from DATE NOT NULL,       -- When this schema version became active
     active_to DATE,                  -- When it was superseded (NULL = current)

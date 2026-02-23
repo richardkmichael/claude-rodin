@@ -6,10 +6,10 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use tool_monitor::db::{create_production_database, DatabaseError};
+//! use tool_monitor::db::{create_database, DatabaseError};
 //!
 //! fn main() -> Result<(), DatabaseError> {
-//!     let db = create_production_database("monitor.db")?;
+//!     let db = create_database("monitor.db")?;
 //!     
 //!     let event = r#"{
 //!         "session_id": "abc-123",
