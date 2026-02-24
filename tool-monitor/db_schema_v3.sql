@@ -2,8 +2,8 @@
 -- V3 additions over V2:
 --   - Expression indexes on tool_input fields (fast equality lookups)
 --   - FTS5 trigram virtual tables + triggers (fast wildcard/substring search)
---   - schema_info.contract_fields documents fields present in all hook payloads
---   - tool_schemas.common_fields stores per-tool analysis fields (not contract fields)
+--   - schema_info.hook_common_fields documents fields present in all hook payloads
+--   - tool_schemas.indexed_fields stores per-tool FTS index coverage (path, fts_table, fts_column)
 --   - tool_schemas.file_name generated column removed (was broken for new hook events)
 --   - PostToolUseFailure and PermissionRequest hook coverage
 
@@ -17,7 +17,7 @@ CREATE TABLE schema_info (
 INSERT INTO schema_info (key, value) VALUES ('version', '3.0.0');
 INSERT INTO schema_info (key, value) VALUES ('description', 'V3: FTS5 trigram indexes, expression indexes, expanded hook coverage');
 INSERT INTO schema_info (key, value) VALUES (
-    'contract_fields',
+    'hook_common_fields',
     '["session_id","hook_event_name","tool_name","cwd","transcript_path"]'
 );
 
@@ -69,7 +69,7 @@ CREATE TABLE tool_schemas (
     schema_json TEXT NOT NULL,  -- Complete JSON Schema document
     category TEXT,              -- File, Search, System, Web, Workflow
     description TEXT,
-    common_fields TEXT,         -- JSON array of per-tool analysis field paths (e.g. ["$.tool_input.command"])
+    indexed_fields TEXT,        -- JSON array of {path, fts_table, fts_column} for this tool's FTS coverage
 
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (tool_name, hook_event, schema_version)

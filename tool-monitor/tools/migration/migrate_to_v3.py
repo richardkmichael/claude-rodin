@@ -5,8 +5,8 @@ Migrate tool-monitor database from Schema V2 to Schema V3.
 V3 adds:
   - Expression indexes on tool_input fields for fast equality lookups
   - FTS5 trigram virtual tables for fast wildcard/substring search
-  - schema_info.contract_fields: documents fields present in all hook payloads
-  - tool_schemas.common_fields: repopulated with per-tool analysis fields
+  - schema_info.hook_common_fields: documents fields present in all hook payloads
+  - tool_schemas.indexed_fields: renamed from common_fields, populated with per-tool FTS index coverage
   - PostToolUseFailure and PermissionRequest schemas derived into tool_schemas
   - tool_schemas.file_name generated column dropped (was broken for new hook events)
   - Schema version bumped to 3.0.0
@@ -30,17 +30,18 @@ from typing import Optional
 # These match the generated columns extracted in tool_events.
 CONTRACT_FIELDS = ["session_id", "hook_event_name", "tool_name", "cwd", "transcript_path"]
 
-# Per-tool analysis fields indexed by FTS5 or expression indexes.
+# Per-tool FTS index coverage: which fields are indexed and via which FTS5 table.
 # Keys use tool_schemas.tool_name capitalisation (derived from filenames, not payload).
-TOOL_COMMON_FIELDS = {
-    "Bash":      ["$.tool_input.command"],
-    "Read":      ["$.tool_input.file_path"],
-    "Write":     ["$.tool_input.file_path"],
-    "Edit":      ["$.tool_input.file_path"],
-    "Grep":      ["$.tool_input.pattern"],
-    "Glob":      ["$.tool_input.pattern"],
-    "Webfetch":  ["$.tool_input.url"],
-    "Websearch": ["$.tool_input.query"],
+# Each entry: {"path": json_path, "fts_table": table_name, "fts_column": column_name}
+TOOL_INDEXED_FIELDS = {
+    "Bash":      [{"path": "$.tool_input.command",   "fts_table": "fts_bash_command",  "fts_column": "command"}],
+    "Read":      [{"path": "$.tool_input.file_path", "fts_table": "fts_file_path",     "fts_column": "file_path"}],
+    "Write":     [{"path": "$.tool_input.file_path", "fts_table": "fts_file_path",     "fts_column": "file_path"}],
+    "Edit":      [{"path": "$.tool_input.file_path", "fts_table": "fts_file_path",     "fts_column": "file_path"}],
+    "Grep":      [{"path": "$.tool_input.pattern",   "fts_table": "fts_grep_pattern",  "fts_column": "pattern"}],
+    "Glob":      [{"path": "$.tool_input.pattern",   "fts_table": "fts_glob_pattern",  "fts_column": "pattern"}],
+    "Webfetch":  [{"path": "$.tool_input.url",       "fts_table": "fts_url",           "fts_column": "url"}],
+    "Websearch": [{"path": "$.tool_input.query",     "fts_table": "fts_search_query",  "fts_column": "query"}],
 }
 
 
@@ -160,78 +161,86 @@ def create_fts_tables_triggers_and_backfill(cursor: sqlite3.Cursor):
 
 
 # ---------------------------------------------------------------------------
-# Step 3: schema_info.contract_fields
+# Step 3: schema_info.hook_common_fields
 # ---------------------------------------------------------------------------
 
-def add_contract_fields(cursor: sqlite3.Cursor):
-    """Insert contract_fields entry into schema_info."""
+def add_hook_common_fields(cursor: sqlite3.Cursor):
+    """Insert hook_common_fields entry into schema_info."""
     cursor.execute("""
         INSERT OR IGNORE INTO schema_info (key, value)
-        VALUES ('contract_fields', ?)
+        VALUES ('hook_common_fields', ?)
     """, (json.dumps(CONTRACT_FIELDS),))
-    print("   Added schema_info.contract_fields")
+    print("   Added schema_info.hook_common_fields")
 
 
 # ---------------------------------------------------------------------------
-# Step 4: tool_schemas.common_fields
+# Step 4: tool_schemas.indexed_fields (column still named common_fields until step 5)
 # ---------------------------------------------------------------------------
 
-def update_common_fields(cursor: sqlite3.Cursor):
-    """Replace contract-field lists in common_fields with per-tool analysis fields."""
+def update_indexed_fields(cursor: sqlite3.Cursor):
+    """Populate common_fields with per-tool FTS index coverage.
+
+    The column is still named common_fields at this point; step 5 renames it to indexed_fields.
+    """
     cursor.execute("SELECT DISTINCT tool_name FROM tool_schemas")
     all_tools = [row[0] for row in cursor.fetchall()]
 
     updated = 0
     for tool_name in all_tools:
-        fields = TOOL_COMMON_FIELDS.get(tool_name, [])
+        fields = TOOL_INDEXED_FIELDS.get(tool_name, [])
         cursor.execute("""
             UPDATE tool_schemas SET common_fields = ? WHERE tool_name = ?
         """, (json.dumps(fields), tool_name))
         updated += cursor.rowcount
 
-    print(f"   Updated common_fields for {updated} tool_schemas rows")
+    print(f"   Updated indexed_fields for {updated} tool_schemas rows")
 
 
 # ---------------------------------------------------------------------------
-# Step 5: Drop file_name generated column (table recreate)
+# Step 5: Drop file_name generated column and rename common_fields → indexed_fields
 # ---------------------------------------------------------------------------
 
 def recreate_tool_schemas_without_file_name(cursor: sqlite3.Cursor):
-    """Recreate tool_schemas without the broken file_name generated column."""
+    """Recreate tool_schemas without the broken file_name column; rename common_fields → indexed_fields."""
     cursor.execute("PRAGMA table_info(tool_schemas)")
     columns = [row[1] for row in cursor.fetchall()]
 
-    if "file_name" not in columns:
-        print("   file_name column already absent, skipping recreate")
-        return
+    if "file_name" in columns:
+        # Full recreate: drop file_name and rename common_fields → indexed_fields in one pass.
+        cursor.execute("""
+            CREATE TABLE tool_schemas_v3 (
+                tool_name TEXT NOT NULL,
+                hook_event TEXT NOT NULL,
+                schema_version TEXT NOT NULL,
+                schema_json TEXT NOT NULL,
+                category TEXT,
+                description TEXT,
+                indexed_fields TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (tool_name, hook_event, schema_version)
+            )
+        """)
 
-    cursor.execute("""
-        CREATE TABLE tool_schemas_v3 (
-            tool_name TEXT NOT NULL,
-            hook_event TEXT NOT NULL,
-            schema_version TEXT NOT NULL,
-            schema_json TEXT NOT NULL,
-            category TEXT,
-            description TEXT,
-            common_fields TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (tool_name, hook_event, schema_version)
-        )
-    """)
+        cursor.execute("""
+            INSERT INTO tool_schemas_v3
+                (tool_name, hook_event, schema_version, schema_json,
+                 category, description, indexed_fields, created_at)
+            SELECT tool_name, hook_event, schema_version, schema_json,
+                   category, description, common_fields, created_at
+              FROM tool_schemas
+        """)
 
-    cursor.execute("""
-        INSERT INTO tool_schemas_v3
-            (tool_name, hook_event, schema_version, schema_json,
-             category, description, common_fields, created_at)
-        SELECT tool_name, hook_event, schema_version, schema_json,
-               category, description, common_fields, created_at
-          FROM tool_schemas
-    """)
+        cursor.execute("DROP TABLE tool_schemas")
+        cursor.execute("ALTER TABLE tool_schemas_v3 RENAME TO tool_schemas")
+        print("   Recreated tool_schemas: dropped file_name, renamed common_fields → indexed_fields")
 
-    cursor.execute("DROP TABLE tool_schemas")
-    cursor.execute("ALTER TABLE tool_schemas_v3 RENAME TO tool_schemas")
+    elif "common_fields" in columns:
+        # file_name already gone; just rename the column.
+        cursor.execute("ALTER TABLE tool_schemas RENAME COLUMN common_fields TO indexed_fields")
+        print("   Renamed common_fields → indexed_fields")
 
-    print("   Recreated tool_schemas without file_name column")
+    else:
+        print("   tool_schemas already up to date, skipping")
 
 
 # ---------------------------------------------------------------------------
@@ -292,14 +301,14 @@ def seed_new_hook_schemas(cursor: sqlite3.Cursor):
     schema_version = "1.0.0"
 
     cursor.execute("""
-        SELECT tool_name, schema_json, category, common_fields
+        SELECT tool_name, schema_json, category, indexed_fields
           FROM tool_schemas
          WHERE hook_event = 'PreToolUse'
     """)
     source_rows = cursor.fetchall()
 
     seeded = 0
-    for tool_name, schema_json_str, category, common_fields in source_rows:
+    for tool_name, schema_json_str, category, indexed_fields in source_rows:
         try:
             pre_schema = json.loads(schema_json_str)
         except json.JSONDecodeError:
@@ -317,10 +326,10 @@ def seed_new_hook_schemas(cursor: sqlite3.Cursor):
             cursor.execute("""
                 INSERT OR IGNORE INTO tool_schemas
                     (tool_name, hook_event, schema_version, schema_json,
-                     category, description, common_fields)
+                     category, description, indexed_fields)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (tool_name, hook_event, schema_version, new_schema_json,
-                  category, description, common_fields))
+                  category, description, indexed_fields))
 
             if cursor.rowcount > 0:
                 cursor.execute("""
@@ -372,11 +381,11 @@ def migrate_to_v3(db_path: str) -> bool:
         print("\nStep 2: FTS5 tables, backfill, and triggers...")
         create_fts_tables_triggers_and_backfill(cursor)
 
-        print("\nStep 3: schema_info.contract_fields...")
-        add_contract_fields(cursor)
+        print("\nStep 3: schema_info.hook_common_fields...")
+        add_hook_common_fields(cursor)
 
-        print("\nStep 4: tool_schemas.common_fields (per-tool analysis fields)...")
-        update_common_fields(cursor)
+        print("\nStep 4: tool_schemas.indexed_fields (per-tool FTS index coverage)...")
+        update_indexed_fields(cursor)
 
         print("\nStep 5: Drop file_name generated column (table recreate)...")
         recreate_tool_schemas_without_file_name(cursor)

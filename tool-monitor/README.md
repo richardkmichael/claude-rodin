@@ -73,7 +73,7 @@ python tools/validation/validate_against_schemas.py your_existing_monitor.db
 ## Database Schema
 
 ### Schema V3 Design
-- `schema_info`: database schema version, metadata, and contract_fields list
+- `schema_info`: database schema version, metadata, and hook_common_fields list
 - `tool_events`: minimal table with stable hook fields + full JSON payload
 - `tool_schemas`: JSON Schema documents for each tool/hook combination (including PostToolUseFailure and PermissionRequest)
 - `schema_versions`: tool schema evolution tracking
