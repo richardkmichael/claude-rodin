@@ -1,6 +1,7 @@
 ---
 name: tool-usage
-description: Query the tool-monitor database to look up and analyze Claude tool usage.
+description: >
+  Query the tool-monitor database to look up and analyze Claude tool usage.
   Use when asked about tool usage statistics, which tools have been used most, recent
   tool activity, bash commands run, files read or edited, grep patterns searched,
   session analysis, or any question about how Claude has been using its tools.
@@ -15,16 +16,16 @@ Database: `~/.claude/tool-monitor.sqlite`
 
 ## tool_events table
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | INTEGER | Primary key |
-| `session_id` | TEXT | Groups events by conversation session |
-| `hook_event_name` | TEXT | `PreToolUse` or `PostToolUse` |
-| `tool_name` | TEXT | e.g. `Bash`, `Read`, `Grep`, `Edit`, `Write`, `Glob`, `Task` |
-| `cwd` | TEXT | Working directory at time of invocation |
-| `transcript_path` | TEXT | Path to the session transcript file |
-| `created_at` | DATETIME | Timestamp |
-| `payload` | TEXT | Full JSON payload (all fields above, plus `tool_input` and more) |
+| Column            | Type     | Notes                                                                     |
+|-------------------|----------|---------------------------------------------------------------------------|
+| `id`              | INTEGER  | Primary key                                                               |
+| `session_id`      | TEXT     | Groups events by conversation session                                     |
+| `hook_event_name` | TEXT     | `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, or `PermissionRequest` |
+| `tool_name`       | TEXT     | e.g. `Bash`, `Read`, `Grep`, `Edit`, `Write`, `Glob`, `Task`              |
+| `cwd`             | TEXT     | Working directory at time of invocation                                   |
+| `transcript_path` | TEXT     | Path to the session transcript file                                       |
+| `created_at`      | DATETIME | Timestamp                                                                 |
+| `payload`         | TEXT     | Full JSON payload (all fields above, plus `tool_input` and more)          |
 
 Tool-specific input fields live inside `payload` and are accessed with `json_extract`:
 
@@ -50,6 +51,39 @@ To list all tracked tools and their categories:
 ```sql
 SELECT DISTINCT tool_name, category FROM tool_schemas WHERE hook_event = 'PreToolUse' ORDER BY tool_name;
 ```
+
+## FTS5 wildcard and substring search
+
+For substring and wildcard searches, FTS5 virtual tables are far faster than
+`LIKE '%term%'` on large databases (typically 100-700x).
+
+The database is self-describing: query `tool_schemas.indexed_fields` to discover
+which tools have FTS coverage and which tables and columns to use:
+
+```sql
+SELECT tool_name,
+       indexed_fields
+  FROM tool_schemas
+ WHERE hook_event = 'PreToolUse'
+   AND indexed_fields != '[]'
+ ORDER BY tool_name;
+```
+
+Each `indexed_fields` value is a JSON array of `{"path", "fts_table", "fts_column"}` objects.
+Use `fts_table` and `fts_column` from those results to build the JOIN:
+
+```sql
+SELECT e.created_at, json_extract(e.payload, '$.tool_input.command')
+  FROM tool_events e
+  JOIN fts_bash_command f ON f.event_id = e.id
+ WHERE f.command MATCH '"git commit"'
+ ORDER BY e.created_at DESC;
+```
+
+Special characters (`.`, `-`, `/`) require phrase quoting: `MATCH '"CLAUDE.md"'` not `MATCH 'CLAUDE.md'`
+
+Use `json_extract` with `=` for exact equality (hits expression indexes). Use FTS5 `MATCH`
+for substring or wildcard search.
 
 ## Running queries
 
@@ -80,26 +114,31 @@ When the user asks about a specific tool's inputs (e.g. "which files have I read
 ## Common patterns
 
 Filter by text pattern:
+
 ```sql
 WHERE json_extract(payload, '$.tool_input.command') LIKE '%git%'
 ```
 
 Scope to a directory:
+
 ```sql
 WHERE cwd LIKE '/path/to/my-project%'
 ```
 
 Scope to current session:
+
 ```sql
 WHERE session_id = (SELECT session_id FROM tool_events ORDER BY created_at DESC LIMIT 1)
 ```
 
 Activity today:
+
 ```sql
 WHERE date(created_at) = date('now')
 ```
 
 Tool frequency summary:
+
 ```sql
 SELECT tool_name, COUNT(*) AS uses
   FROM tool_events
