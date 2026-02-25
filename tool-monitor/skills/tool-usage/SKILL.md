@@ -146,3 +146,22 @@ SELECT tool_name, COUNT(*) AS uses
  GROUP BY tool_name
  ORDER BY uses DESC;
 ```
+
+## Cross-referencing session transcripts
+
+Session JSONL `hook_progress` entries log a compound `hookName` field in the
+format `{hookEvent}:{tool_name}` (e.g. `PreToolUse:ExitPlanMode`).  The
+tool-monitor database stores these as separate columns, so to find the
+corresponding entry, query by `hook_event_name` and `tool_name` independently:
+
+```sql
+SELECT id, hook_event_name, tool_name, created_at
+  FROM tool_events
+ WHERE hook_event_name = 'PreToolUse'
+   AND tool_name = 'ExitPlanMode'
+   AND session_id = '32dff3bf-c7e7-4ef8-a9a3-53f7c7b65917';
+```
+
+Note: the `matcher` regex from hook configuration (e.g. `"*"`, `"Bash"`) does
+not appear in the database.  The `tool_name` column always holds the actual
+tool that triggered the hook, regardless of which matcher matched it.
