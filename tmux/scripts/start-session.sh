@@ -85,11 +85,19 @@ printf '{"socket": "%s", "session": "%s", "target": "%s", "log": "%s"}\n' \
   "$socket_name" "$session" "$pane_target" "$log_file"
 
 # Open Alacritty monitoring window (only with -m flag)
-if [[ "$monitor" == true && -n "${ALACRITTY_SOCKET:-}" ]]; then
-  tmux_bin=$(command -v tmux)
-  if alacritty msg --socket "$ALACRITTY_SOCKET" create-window \
-       --title "claude: ${name}" \
-       -e "$tmux_bin" -L "$socket_name" attach; then
-    :
+if [[ "$monitor" == true ]]; then
+  # Query tmux's own environment table rather than the inherited shell env.
+  # On Alacritty restart, the shell's ALACRITTY_SOCKET is stale (old PID), but
+  # tmux updates its table from the attaching client if update-environment includes
+  # ALACRITTY_SOCKET (see tmux.conf). `tmux showenv` returns the fresh value.
+  if ! alacritty_env=$(tmux showenv -g ALACRITTY_SOCKET 2>/dev/null); then
+    echo "Error: ALACRITTY_SOCKET not in tmux global environment (is update-environment configured?)" >&2
+    exit 1
   fi
+  alacritty_socket="${alacritty_env#ALACRITTY_SOCKET=}"
+
+  tmux_bin=$(command -v tmux)
+  alacritty msg --socket "$alacritty_socket" create-window \
+    --title "claude: ${name}" \
+    -e "$tmux_bin" -L "$socket_name" attach
 fi
