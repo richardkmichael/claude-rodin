@@ -83,6 +83,30 @@ tmux -L $SOCKET send-keys -t $TARGET C-c   # interrupt
 tmux -L $SOCKET send-keys -t $TARGET C-d   # EOF
 ```
 
+## Testing tmux key bindings
+
+`send-keys` writes bytes directly into the pane's PTY. The tmux prefix interception
+happens in the **client** layer (between the terminal and the server), so `send-keys`
+bypasses it entirely. Sending `C-t` via `send-keys` delivers the raw byte to the
+shell, not to the tmux binding system.
+
+Consequence: **key bindings cannot be triggered via `send-keys`**. What can be tested:
+
+- The bound **commands** work correctly — extract the command from the binding and run
+  it directly against the server with `tmux -L $SOCKET <command> -t $TARGET ...`.
+  For example, if the binding runs `select-layout even-horizontal`, test it as:
+  ```bash
+  tmux -L $SOCKET select-layout -t $TARGET even-horizontal
+  ```
+- The binding is **registered** — query `list-keys` with the specific key. For example,
+  to check key `Space`:
+  ```bash
+  tmux -L $SOCKET list-keys Space
+  ```
+
+What cannot be tested without a human at a real terminal: the full keystroke path
+(terminal → client intercepts prefix → dispatches binding → command runs).
+
 ## Interactive tool recipes
 
 - Python REPL:
