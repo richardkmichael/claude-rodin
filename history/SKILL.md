@@ -5,8 +5,6 @@ description: >
   to look at past conversations, find something said in a previous session, extract
   user questions from a session, recover content from before a context compaction,
   or search across sessions for a topic or keyword.
-references:
-  - references/claude-code-session-transcript.schema.json
 ---
 
 # Session History
