@@ -44,22 +44,23 @@ so searching it would be redundant.
 1. Find the current session's JSONL file.
 2. Find the last compaction boundary using `scope.py`:
    ```
-   BOUNDARY=$(python3 scripts/scope.py <session.jsonl>)
+   BOUNDARY=$(python3 scripts/scope.py <session.jsonl>) || true
    ```
    This prints the 0-based line index of the last `compact_boundary` record,
-   or exits with code 1 if no boundary exists.
-3. If a boundary exists: search only lines before that index using `--before`:
+   or exits with code 1 (and sets BOUNDARY to empty) if no boundary exists.
+3. If BOUNDARY is non-empty: search only lines before that index:
    ```
    python3 scripts/search.py --before $BOUNDARY "keyword" <session.jsonl>
    ```
    These are the entries that were summarized away from the model's context.
-4. If no boundary exists: the entire conversation is still in context.
-   Fall back to the clear-context parent chain — run
-   `scripts/session-info.sh <session.jsonl>` and follow `parent.file` paths
-   to find prior sessions whose content is no longer visible.
-5. Also follow the clear-context parent chain if it exists — parent sessions
-   are always out of context. Collect `parent.file` paths from session-info
-   output and search those files entirely.
+4. If BOUNDARY is empty: the entire conversation is still in context.
+   Fall back to the parent chain — run
+   `python3 scripts/session-info.py <session.jsonl>` and follow `parent.file`
+   paths to find prior sessions whose content is no longer visible. The parent
+   may be a clear-context parent or a fork origin (`link_type` in the output).
+5. Also follow the parent chain if it exists — parent sessions are always
+   out of context. Collect `parent.file` paths from session-info output and
+   search those files entirely.
 
 ### `/history all [query]`
 
@@ -73,14 +74,37 @@ python3 scripts/search.py "query" ~/.claude/projects/<dir>/*.jsonl
 
 A JSON Schema for the JSONL format is included as a reference file
 (`references/claude-code-session-transcript.schema.json`). It documents all
-record types, their fields, and enum values. Consult it to understand what
-fields are available before constructing searches.
+record types, their fields, and enum values.
+
+The helper scripts (`search.py`, `user-messages.py`, etc.) cover common query
+patterns, but not every possible field or combination. For queries that go
+beyond what the scripts support — e.g., filtering by `stop_reason`, inspecting
+`logicalParentUuid` chains, extracting `toolUseResult` content, or any field
+not exposed as a `search.py` filter — consult the JSON Schema to discover the
+field names and structure, then write a short inline Python snippet to query
+the JSONL directly. For example:
+
+```python
+python3 -c "
+import json
+with open('session.jsonl') as f:
+    for i, line in enumerate(f):
+        r = json.loads(line)
+        if r.get('type') == 'assistant':
+            sr = r.get('message', {}).get('stop_reason')
+            if sr == 'max_tokens':
+                print(f'[{i}] stop_reason=max_tokens')
+"
+```
+
+The schema is the authoritative reference for what fields exist on each record
+type. Read it before writing custom queries.
 
 If a file contains records that don't match the schema (e.g. a newer Claude
 Code version added fields), run the inspector to see what changed:
 
 ```
-scripts/inspect-schema.sh <session.jsonl>
+python3 scripts/inspect-schema.py <session.jsonl>
 ```
 
 This shows: top-level keys, entry type distribution, and user content formats.
@@ -178,7 +202,7 @@ code 1 if no boundary exists (entire session is in context).
 List all human-typed messages with their 0-based indices:
 
 ```
-scripts/user-messages.sh <session.jsonl>
+python3 scripts/user-messages.py <session.jsonl>
 ```
 
 Output: `[INDEX] first 200 chars of message`. Filters out tool results, teammate
@@ -189,11 +213,21 @@ messages, compaction summaries, slash-command entries, and interrupts.
 After identifying entries of interest, fetch the full text using the 0-based index:
 
 ```
-scripts/get-entry.sh <session.jsonl> <index> [index ...]
+python3 scripts/get-entry.py <session.jsonl> <index> [index ...]
 ```
 
 Works on any entry type (user, assistant, system). Shows type, role, and full
 content. For non-text content (tool results, tool use calls), shows a summary.
+
+### Schema inspector
+
+Show entry types, content formats, and top-level keys of a JSONL file:
+
+```
+python3 scripts/inspect-schema.py <session.jsonl>
+```
+
+Run this on unfamiliar files to validate assumptions before deeper analysis.
 
 ### Session chain info
 
@@ -201,16 +235,18 @@ When asked about what happened in a session, or when you need to find content
 that spans multiple sessions:
 
 ```
-scripts/session-info.sh <session.jsonl>
+python3 scripts/session-info.py <session.jsonl>
 ```
 
 Outputs JSON with:
 - `entry_count`, `date_range` — session size and timespan
 - `compactions` — array of compaction boundaries with index, entries_after,
   and summary_file
-- `clear_context_end` — index where session ended via clear-context
-- `parent` — info for the parent session (clear-context chain)
-- `children` — info for sessions spawned from this one
+- `link_type` — how this session was created: `"clear-context"`, `"fork"`,
+  or `null` (original session)
+- `parent` — info for the parent session (clear-context or fork origin)
+- `children` — sessions spawned from this one (clear-context or fork),
+  each with its own `link_type`
 
 ## How compaction works in the JSONL
 
@@ -235,15 +271,19 @@ was given (rather than the original content).
 
 ## Context interruption mechanisms
 
-Two mechanisms interrupt a session's context:
+Three commands affect session context:
 - `/compact` creates a boundary within the same JSONL file. All original
   entries remain at their original indices; only the model's active context
   is replaced with a summary.
-- "Clear context" (ExitPlanMode) creates a new JSONL file. The old session
-  gets a synthetic interrupt; the new session's early entries contain "read
-  the full transcript at: <path>" pointing to the parent session.
+- "Clear context" (ExitPlanMode approval) creates a new JSONL file. The old
+  session stops; the new session's early entries contain "read the full
+  transcript at: <path>" pointing to the parent session.
+- `/fork` copies all main-chain messages to a new JSONL file. Every record
+  in the fork has a `forkedFrom` field with the original session ID. The
+  original session continues independently. When searching with `/history all`,
+  be aware that forks contain duplicate content from their parent.
 
 ## Index convention
 
 All scripts use 0-based indices. The index shown by `search.py` and
-`user-messages.sh` is the correct index to pass to `get-entry.sh`.
+`user-messages.py` is the correct index to pass to `get-entry.py`.

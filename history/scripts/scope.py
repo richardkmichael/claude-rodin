@@ -17,10 +17,15 @@ import json
 import sys
 
 
+def is_compact_boundary(record):
+    return (record.get("type") == "system"
+            and record.get("subtype") == "compact_boundary")
+
+
 def main():
     if len(sys.argv) != 2 or sys.argv[1] in ("-h", "--help"):
         print(__doc__.strip())
-        sys.exit(0 if sys.argv[1:] in (["-h"], ["--help"]) else 2)
+        sys.exit(0 if "--help" in sys.argv or "-h" in sys.argv else 2)
 
     fpath = sys.argv[1]
     last_boundary = None
@@ -35,10 +40,7 @@ def main():
                     record = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if (
-                    record.get("type") == "system"
-                    and record.get("subtype") == "compact_boundary"
-                ):
+                if is_compact_boundary(record):
                     last_boundary = idx
     except FileNotFoundError:
         print(f"File not found: {fpath}", file=sys.stderr)

@@ -61,13 +61,13 @@ def extract_text(content):
             elif btype == "tool_use":
                 name = block.get("name", "?")
                 inp = block.get("input", {})
-                # Show the most useful field from tool input
+                summary = ""
                 if isinstance(inp, dict):
-                    summary = inp.get("command") or inp.get("pattern") or inp.get("query") or inp.get("file_path") or inp.get("prompt") or ""
-                    if summary:
-                        parts.append(f"(tool_use {name}): {summary}")
-                    else:
-                        parts.append(f"(tool_use {name})")
+                    summary = (inp.get("command") or inp.get("pattern")
+                               or inp.get("query") or inp.get("file_path")
+                               or inp.get("prompt") or "")
+                if summary:
+                    parts.append(f"(tool_use {name}): {summary}")
                 else:
                     parts.append(f"(tool_use {name})")
             elif btype == "tool_result":
@@ -179,19 +179,20 @@ def matches_pattern(record, pattern_re):
     return False
 
 
+def get_content(record):
+    """Get the content value from a record, checking message, top-level, then attachment."""
+    return (record.get("message", {}).get("content")
+            or record.get("content")
+            or record.get("attachment", ""))
+
+
 def format_summary(idx, record):
     """Format a record as a one-line summary."""
     rtype = record.get("type", "?")
     role = record.get("message", {}).get("role", "")
     role_str = f" {role}" if role else ""
 
-    content = record.get("message", {}).get("content", "")
-    if not content:
-        content = record.get("content", "")
-    if not content:
-        content = record.get("attachment", "")
-
-    text = extract_text(content)[:300].replace("\n", " ")
+    text = extract_text(get_content(record))[:300].replace("\n", " ")
     return f"[{idx}] {rtype}{role_str}: {text}"
 
 
@@ -226,6 +227,9 @@ def main():
 
     if not files:
         parser.error("No .jsonl files specified")
+
+    if len(non_files) > 1:
+        parser.error(f"Expected at most one PATTERN, got {len(non_files)}: {non_files}")
 
     pattern_str = non_files[0] if non_files else None
     pattern_re = re.compile(pattern_str, re.IGNORECASE) if pattern_str else None
