@@ -1,0 +1,665 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/anthropics/claude-code/session-transcript-line",
+  "title": "Claude Code Session Transcript Line",
+  "description": "Schema for a single line in a Claude Code JSONL session transcript file (~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl). Derived from source analysis of cli.prettier.js 2.1.63; no official schema exists.",
+  "x-schema-version": "1.0.0",
+  "$comment": "Schema version 1.0.0. Validated against 248,000+ lines across 493 sessions spanning Claude Code versions 2.0.24 through 2.1.68.",
+  "oneOf": [
+    { "$ref": "#/$defs/userRecord" },
+    { "$ref": "#/$defs/assistantRecord" },
+    { "$ref": "#/$defs/progressRecord" },
+    { "$ref": "#/$defs/attachmentRecord" },
+    { "$ref": "#/$defs/systemRecord" },
+    { "$ref": "#/$defs/customTitleRecord" },
+    { "$ref": "#/$defs/tagRecord" },
+    { "$ref": "#/$defs/agentNameRecord" },
+    { "$ref": "#/$defs/agentColorRecord" },
+    { "$ref": "#/$defs/agentSettingRecord" },
+    { "$ref": "#/$defs/modeRecord" },
+    { "$ref": "#/$defs/prLinkRecord" },
+    { "$ref": "#/$defs/summaryRecord" },
+    { "$ref": "#/$defs/fileHistorySnapshotRecord" },
+    { "$ref": "#/$defs/attributionSnapshotRecord" },
+    { "$ref": "#/$defs/queueOperationRecord" },
+    { "$ref": "#/$defs/speculationAcceptRecord" }
+  ],
+  "$defs": {
+
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "UUID v4"
+    },
+
+    "isoTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp"
+    },
+
+    "envelope": {
+      "type": "object",
+      "description": "Fields added by insertMessageChain() to every conversation record (lines 516449-516463). Merged at top level via spread.",
+      "properties": {
+        "parentUuid":        { "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }], "description": "UUID of previous message; null at compact_boundary or first message" },
+        "logicalParentUuid": { "$ref": "#/$defs/uuid", "description": "UUID bridging across compaction boundaries" },
+        "isSidechain":       { "type": "boolean", "description": "Whether this is a subagent conversation" },
+        "teamName":          { "type": "string", "description": "Team name if in a team context" },
+        "agentName":         { "type": "string", "description": "Agent name within a team" },
+        "userType":          { "type": "string", "enum": ["external", "ant"], "description": "User type" },
+        "cwd":               { "type": "string", "description": "Working directory at time of write" },
+        "sessionId":         { "$ref": "#/$defs/uuid", "description": "Session UUID (matches filename)" },
+        "version":           { "type": "string", "description": "Claude Code version, e.g. \"2.1.63\"" },
+        "gitBranch":         { "type": "string", "description": "Current git branch" },
+        "agentId":           { "type": "string", "description": "Agent ID for subagent transcripts" },
+        "slug":              { "type": "string", "description": "Human-readable session slug, e.g. \"cozy-baking-anchor\"" }
+      },
+      "required": ["parentUuid", "isSidechain", "userType", "cwd", "sessionId", "version"]
+    },
+
+    "toolResultContentBlock": {
+      "type": "object",
+      "properties": {
+        "type":        { "const": "tool_result" },
+        "tool_use_id": { "type": "string" },
+        "content": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": { "type": "string" },
+                  "text": { "type": "string" }
+                }
+              },
+              "description": "Array of content blocks (e.g. text blocks from subagent results)"
+            }
+          ]
+        },
+        "is_error":    { "type": "boolean" }
+      },
+      "required": ["type", "tool_use_id", "content"]
+    },
+
+    "thinkingContentBlock": {
+      "type": "object",
+      "properties": {
+        "type":      { "const": "thinking" },
+        "thinking":  { "type": "string", "description": "Extended thinking text" },
+        "signature": { "type": "string", "description": "Thinking block signature" }
+      },
+      "required": ["type", "thinking"]
+    },
+
+    "textContentBlock": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "text" },
+        "text": { "type": "string" }
+      },
+      "required": ["type", "text"]
+    },
+
+    "imageContentBlock": {
+      "type": "object",
+      "description": "Image content block (base64-encoded), used for pasted images and screenshots",
+      "properties": {
+        "type": { "const": "image" },
+        "source": {
+          "type": "object",
+          "properties": {
+            "type":       { "type": "string", "description": "Source type, e.g. \"base64\"" },
+            "media_type": { "type": "string", "description": "MIME type, e.g. \"image/png\"" },
+            "data":       { "type": "string", "description": "Base64-encoded image data" }
+          },
+          "required": ["type", "media_type", "data"]
+        }
+      },
+      "required": ["type", "source"]
+    },
+
+    "toolUseContentBlock": {
+      "type": "object",
+      "properties": {
+        "type":   { "const": "tool_use" },
+        "id":     { "type": "string", "description": "Tool use ID, referenced by subsequent tool_result" },
+        "name":   { "type": "string", "description": "Tool name, e.g. \"Bash\", \"Read\", \"Grep\"" },
+        "input":  { "type": "object", "description": "Tool-specific input parameters" },
+        "caller": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string" }
+          }
+        }
+      },
+      "required": ["type", "id", "name", "input"]
+    },
+
+    "assistantContentBlock": {
+      "oneOf": [
+        { "$ref": "#/$defs/thinkingContentBlock" },
+        { "$ref": "#/$defs/textContentBlock" },
+        { "$ref": "#/$defs/toolUseContentBlock" }
+      ]
+    },
+
+    "usageObject": {
+      "type": "object",
+      "description": "Token usage from the Anthropic API response",
+      "properties": {
+        "input_tokens":                     { "type": "integer" },
+        "output_tokens":                    { "type": "integer" },
+        "cache_creation_input_tokens":      { "type": "integer" },
+        "cache_read_input_tokens":          { "type": "integer" },
+        "cache_creation": {
+          "type": "object",
+          "properties": {
+            "ephemeral_1h_input_tokens": { "type": "integer" },
+            "ephemeral_5m_input_tokens": { "type": "integer" }
+          }
+        },
+        "server_tool_use": {
+          "type": "object",
+          "properties": {
+            "web_search_requests": { "type": "integer" },
+            "web_fetch_requests":  { "type": "integer" }
+          }
+        },
+        "service_tier":  { "type": ["string", "null"] },
+        "inference_geo": { "type": ["string", "null"] },
+        "iterations":    { "oneOf": [{ "type": "integer" }, { "type": "array" }, { "type": "null" }], "description": "Iteration count, or empty array" },
+        "speed":         { "oneOf": [{ "type": "number" }, { "type": "string" }, { "type": "null" }], "description": "Speed metric (number) or tier name (string, e.g. \"standard\")" }
+      }
+    },
+
+
+    "userRecord": {
+      "type": "object",
+      "description": "Human turn or tool result. Factory: K8() (line 518734).",
+      "allOf": [{ "$ref": "#/$defs/envelope" }],
+      "properties": {
+        "type":      { "const": "user" },
+        "uuid":      { "$ref": "#/$defs/uuid" },
+        "timestamp": { "$ref": "#/$defs/isoTimestamp" },
+        "message": {
+          "type": "object",
+          "properties": {
+            "role": { "const": "user" },
+            "content": {
+              "oneOf": [
+                { "type": "string", "description": "Plain text for human turns" },
+                {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      { "$ref": "#/$defs/toolResultContentBlock" },
+                      { "$ref": "#/$defs/textContentBlock" },
+                      { "$ref": "#/$defs/imageContentBlock" }
+                    ]
+                  },
+                  "description": "Array of content blocks: tool_result, text, image, or a mix"
+                }
+              ]
+            }
+          },
+          "required": ["role", "content"]
+        },
+        "isMeta":                    { "type": "boolean", "description": "True for injected meta-messages" },
+        "isVisibleInTranscriptOnly": { "type": "boolean", "description": "Display-only message, not sent to API" },
+        "isCompactSummary":          { "type": "boolean", "description": "True when this is a compaction summary" },
+        "summarizeMetadata":         { "type": "object", "description": "Present on compaction summaries" },
+        "toolUseResult": {
+          "oneOf": [
+            {
+              "type": "object",
+              "description": "Structured tool result data. Contents vary by tool. Common fields: stdout, stderr, interrupted, isImage. Grep adds: mode, numFiles, filenames, content, numLines.",
+              "properties": {
+                "stdout":      { "type": "string" },
+                "stderr":      { "type": "string" },
+                "interrupted": { "type": "boolean" },
+                "isImage":     { "type": "boolean" },
+                "mode":        { "type": "string" },
+                "numFiles":    { "type": "integer" },
+                "filenames":   { "type": "array", "items": { "type": "string" } },
+                "content":     { "oneOf": [{ "type": "string" }, { "type": "array" }], "description": "Result content (string or array of content blocks)" },
+                "numLines":    { "type": "integer" }
+              },
+              "additionalProperties": true
+            },
+            {
+              "type": "string",
+              "description": "Plain string tool result (e.g. error output)"
+            },
+            {
+              "type": "array",
+              "items": { "type": "object" },
+              "description": "Array of content blocks (e.g. text blocks from web search results)"
+            }
+          ]
+        },
+        "mcpMeta":                 { "type": "object", "description": "MCP-related metadata" },
+        "imagePasteIds":           { "type": "array", "items": { "oneOf": [{ "type": "string" }, { "type": "integer" }] }, "description": "IDs of pasted images (string or integer)" },
+        "sourceToolAssistantUUID": { "$ref": "#/$defs/uuid", "description": "UUID of the assistant record that issued the tool call" },
+        "permissionMode":          { "type": "string", "description": "e.g. \"plan\", \"default\"" },
+        "thinkingMetadata": {
+          "type": "object",
+          "properties": {
+            "maxThinkingTokens": { "type": "integer" }
+          },
+          "description": "Present when extended thinking is active"
+        },
+        "todos": { "type": "array", "description": "Todo list state snapshot" },
+
+        "parentUuid":        {},
+        "logicalParentUuid": {},
+        "isSidechain":       {},
+        "teamName":          {},
+        "agentName":         {},
+        "userType":          {},
+        "cwd":               {},
+        "sessionId":         {},
+        "version":           {},
+        "gitBranch":         {},
+        "agentId":           {},
+        "slug":              {}
+      },
+      "required": ["type", "uuid", "timestamp", "message"],
+      "additionalProperties": true
+    },
+
+
+    "assistantRecord": {
+      "type": "object",
+      "description": "Model response. Factory: iPq() (line 518676). The same message.id may appear on two consecutive records (streaming artifact).",
+      "allOf": [{ "$ref": "#/$defs/envelope" }],
+      "properties": {
+        "type":      { "const": "assistant" },
+        "uuid":      { "$ref": "#/$defs/uuid" },
+        "timestamp": { "$ref": "#/$defs/isoTimestamp" },
+        "requestId": { "type": "string", "description": "Anthropic API request ID" },
+        "apiError":  { "type": "object", "description": "API error details" },
+        "error":     { "oneOf": [{ "type": "object" }, { "type": "string" }], "description": "General error (object or error code string, e.g. \"rate_limit\")" },
+        "isApiErrorMessage": { "type": "boolean", "description": "Whether this record represents an API error" },
+        "message": {
+          "type": "object",
+          "properties": {
+            "id":    { "type": "string", "description": "Anthropic message ID, e.g. msg_01..." },
+            "model": { "type": "string", "description": "Model ID, e.g. \"claude-opus-4-6\"" },
+            "role":  { "const": "assistant" },
+            "type":  { "const": "message" },
+            "stop_reason":   { "type": ["string", "null"], "enum": ["end_turn", "stop_sequence", "tool_use", null], "description": "null during streaming" },
+            "stop_sequence": { "type": ["string", "null"] },
+            "container":          { "type": "null", "description": "Reserved" },
+            "context_management": { "oneOf": [{ "type": "null" }, { "type": "object" }], "description": "Context management data, or null" },
+            "content": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/assistantContentBlock" },
+              "description": "Array of thinking, text, and/or tool_use blocks"
+            },
+            "usage": { "$ref": "#/$defs/usageObject" }
+          },
+          "required": ["id", "role", "content"]
+        },
+
+        "parentUuid":        {},
+        "logicalParentUuid": {},
+        "isSidechain":       {},
+        "teamName":          {},
+        "agentName":         {},
+        "userType":          {},
+        "cwd":               {},
+        "sessionId":         {},
+        "version":           {},
+        "gitBranch":         {},
+        "agentId":           {},
+        "slug":              {}
+      },
+      "required": ["type", "uuid", "timestamp", "message"],
+      "additionalProperties": true
+    },
+
+
+    "progressRecord": {
+      "type": "object",
+      "description": "Tool/hook progress notification. Factory: lKq() (line 518777). normalizedMessages in data is always cleared to [] before writing.",
+      "allOf": [{ "$ref": "#/$defs/envelope" }],
+      "properties": {
+        "type":      { "const": "progress" },
+        "uuid":      { "$ref": "#/$defs/uuid" },
+        "timestamp": { "$ref": "#/$defs/isoTimestamp" },
+        "toolUseID":       { "type": "string", "description": "Tool use ID this relates to" },
+        "parentToolUseID": { "type": "string", "description": "Parent tool use ID" },
+        "data": {
+          "type": "object",
+          "description": "Progress payload, varies by progress type",
+          "properties": {
+            "type":      { "type": "string", "description": "Progress type, e.g. \"hook_progress\"" },
+            "hookEvent": { "type": "string", "description": "\"PreToolUse\" or \"PostToolUse\"" },
+            "hookName":  { "type": "string", "description": "e.g. \"PreToolUse:Bash\"" },
+            "command":   { "type": "string", "description": "Hook script/command" },
+            "message":   { "type": "object", "description": "Serialized user message" },
+            "normalizedMessages": {
+              "type": "array",
+              "description": "Always [] in persisted records (cleared before write)"
+            }
+          },
+          "additionalProperties": true
+        },
+
+        "parentUuid":        {},
+        "logicalParentUuid": {},
+        "isSidechain":       {},
+        "teamName":          {},
+        "agentName":         {},
+        "userType":          {},
+        "cwd":               {},
+        "sessionId":         {},
+        "version":           {},
+        "gitBranch":         {},
+        "agentId":           {},
+        "slug":              {}
+      },
+      "required": ["type", "uuid", "timestamp", "toolUseID", "data"],
+      "additionalProperties": true
+    },
+
+
+    "attachmentRecord": {
+      "type": "object",
+      "description": "Structured event/notification. Factory: wq() (line 290751). Discriminated by attachment.type.",
+      "allOf": [{ "$ref": "#/$defs/envelope" }],
+      "properties": {
+        "type":      { "const": "attachment" },
+        "uuid":      { "$ref": "#/$defs/uuid" },
+        "timestamp": { "$ref": "#/$defs/isoTimestamp" },
+        "attachment": {
+          "type": "object",
+          "description": "Payload object, discriminated by the 'type' field",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "hook_blocking_error",
+                "hook_cancelled",
+                "hook_error_during_execution",
+                "hook_non_blocking_error",
+                "hook_success",
+                "hook_system_message",
+                "hook_additional_context",
+                "hook_stopped_continuation",
+                "plan_mode",
+                "plan_mode_reentry",
+                "plan_mode_exit",
+                "plan_file_reference",
+                "ultramemory",
+                "todo_reminder",
+                "task_reminder",
+                "task_status",
+                "structured_output",
+                "max_turns_reached",
+                "queued_command",
+                "invoked_skills",
+                "teammate_shutdown_batch",
+                "new_file",
+                "new_directory",
+                "file",
+                "directory",
+                "edited_text_file",
+                "agent_mention"
+              ],
+              "description": "Attachment subtype discriminator"
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": true
+        },
+
+        "parentUuid":        {},
+        "logicalParentUuid": {},
+        "isSidechain":       {},
+        "teamName":          {},
+        "agentName":         {},
+        "userType":          {},
+        "cwd":               {},
+        "sessionId":         {},
+        "version":           {},
+        "gitBranch":         {},
+        "agentId":           {},
+        "slug":              {}
+      },
+      "required": ["type", "uuid", "timestamp", "attachment"],
+      "additionalProperties": true
+    },
+
+
+    "systemRecord": {
+      "type": "object",
+      "description": "System event. Various factories (lines 520382-520437).",
+      "allOf": [{ "$ref": "#/$defs/envelope" }],
+      "properties": {
+        "type":      { "const": "system" },
+        "subtype": {
+          "type": "string",
+          "enum": ["compact_boundary", "microcompact_boundary", "local_command", "api_error", "stop_hook_summary", "turn_duration"],
+          "description": "System event subtype"
+        },
+        "uuid":      { "$ref": "#/$defs/uuid" },
+        "timestamp": { "$ref": "#/$defs/isoTimestamp" },
+        "level":     { "type": "string", "enum": ["info", "error", "suggestion"] },
+        "isMeta":    { "type": "boolean", "description": "Always true for system records" },
+        "content":   { "type": "string", "description": "Human-readable description" },
+
+        "compactMetadata": {
+          "type": "object",
+          "description": "Present when subtype is \"compact_boundary\"",
+          "properties": {
+            "trigger":            { "type": "string" },
+            "preTokens":          { "type": "integer" },
+            "userContext":        { "type": "string" },
+            "messagesSummarized": { "type": "integer" }
+          },
+          "required": ["trigger", "preTokens"]
+        },
+
+        "microcompactMetadata": {
+          "type": "object",
+          "description": "Present when subtype is \"microcompact_boundary\"",
+          "properties": {
+            "trigger":                 { "type": "string" },
+            "preTokens":               { "type": "integer" },
+            "tokensSaved":             { "type": "integer" },
+            "compactedToolIds":        { "type": "array", "items": { "type": "string" } },
+            "clearedAttachmentUUIDs":  { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["trigger", "preTokens", "tokensSaved", "compactedToolIds", "clearedAttachmentUUIDs"]
+        },
+
+        "cause":        { "type": "object", "description": "Present when subtype is \"api_error\"" },
+        "error":        { "type": "object", "description": "Present when subtype is \"api_error\"" },
+        "retryInMs":    { "type": "number", "description": "Present when subtype is \"api_error\", may be fractional" },
+        "retryAttempt":  { "type": "integer", "description": "Present when subtype is \"api_error\"" },
+        "maxRetries":   { "type": "integer", "description": "Present when subtype is \"api_error\"" },
+
+        "parentUuid":        {},
+        "logicalParentUuid": {},
+        "isSidechain":       {},
+        "teamName":          {},
+        "agentName":         {},
+        "userType":          {},
+        "cwd":               {},
+        "sessionId":         {},
+        "version":           {},
+        "gitBranch":         {},
+        "agentId":           {},
+        "slug":              {}
+      },
+      "required": ["type", "subtype", "uuid", "timestamp"],
+      "additionalProperties": true
+    },
+
+
+    "customTitleRecord": {
+      "type": "object",
+      "description": "Session custom title. Metadata-only (no envelope).",
+      "properties": {
+        "type":        { "const": "custom-title" },
+        "customTitle": { "type": "string" },
+        "sessionId":   { "$ref": "#/$defs/uuid" }
+      },
+      "required": ["type", "customTitle", "sessionId"],
+      "additionalProperties": false
+    },
+
+    "tagRecord": {
+      "type": "object",
+      "description": "Session tag. Metadata-only (no envelope).",
+      "properties": {
+        "type":      { "const": "tag" },
+        "tag":       { "type": "string" },
+        "sessionId": { "$ref": "#/$defs/uuid" }
+      },
+      "required": ["type", "tag", "sessionId"],
+      "additionalProperties": false
+    },
+
+    "agentNameRecord": {
+      "type": "object",
+      "description": "Agent name assignment. Metadata-only (no envelope).",
+      "properties": {
+        "type":      { "const": "agent-name" },
+        "agentName": { "type": "string" },
+        "sessionId": { "$ref": "#/$defs/uuid" }
+      },
+      "required": ["type", "agentName", "sessionId"],
+      "additionalProperties": false
+    },
+
+    "agentColorRecord": {
+      "type": "object",
+      "description": "Agent color assignment. Metadata-only (no envelope).",
+      "properties": {
+        "type":       { "const": "agent-color" },
+        "agentColor": { "type": "string" },
+        "sessionId":  { "$ref": "#/$defs/uuid" }
+      },
+      "required": ["type", "agentColor", "sessionId"],
+      "additionalProperties": false
+    },
+
+    "agentSettingRecord": {
+      "type": "object",
+      "description": "Agent setting. Metadata-only (no envelope).",
+      "properties": {
+        "type":         { "const": "agent-setting" },
+        "agentSetting": { "type": "object" },
+        "sessionId":    { "$ref": "#/$defs/uuid" }
+      },
+      "required": ["type", "agentSetting", "sessionId"],
+      "additionalProperties": false
+    },
+
+    "modeRecord": {
+      "type": "object",
+      "description": "Permission mode change. Metadata-only (no envelope).",
+      "properties": {
+        "type":      { "const": "mode" },
+        "mode":      { "type": "string" },
+        "sessionId": { "$ref": "#/$defs/uuid" }
+      },
+      "required": ["type", "mode", "sessionId"],
+      "additionalProperties": false
+    },
+
+    "prLinkRecord": {
+      "type": "object",
+      "description": "Pull request link. Metadata-only (no envelope).",
+      "properties": {
+        "type":         { "const": "pr-link" },
+        "sessionId":    { "$ref": "#/$defs/uuid" },
+        "prNumber":     { "type": "integer" },
+        "prUrl":        { "type": "string", "format": "uri" },
+        "prRepository": { "type": "string" },
+        "timestamp":    { "$ref": "#/$defs/isoTimestamp" }
+      },
+      "required": ["type", "sessionId", "prNumber", "prUrl", "prRepository", "timestamp"],
+      "additionalProperties": false
+    },
+
+    "summaryRecord": {
+      "type": "object",
+      "description": "Session summary, written at session end. Keyed by leafUuid on read. Metadata-only (no envelope).",
+      "properties": {
+        "type":     { "const": "summary" },
+        "summary":  { "type": "string", "description": "Human-readable session summary" },
+        "leafUuid": { "$ref": "#/$defs/uuid", "description": "UUID of the last assistant message" }
+      },
+      "required": ["type", "summary", "leafUuid"],
+      "additionalProperties": false
+    },
+
+    "fileHistorySnapshotRecord": {
+      "type": "object",
+      "description": "File state snapshot, written before each user turn. Metadata-only (no envelope).",
+      "properties": {
+        "type":             { "const": "file-history-snapshot" },
+        "messageId":        { "$ref": "#/$defs/uuid", "description": "UUID of the associated user message" },
+        "isSnapshotUpdate": { "type": "boolean" },
+        "snapshot": {
+          "type": "object",
+          "properties": {
+            "messageId":          { "$ref": "#/$defs/uuid" },
+            "trackedFileBackups": {
+              "type": "object",
+              "description": "Map of file paths to backup data",
+              "additionalProperties": true
+            },
+            "timestamp": { "$ref": "#/$defs/isoTimestamp" }
+          },
+          "required": ["messageId", "trackedFileBackups", "timestamp"]
+        }
+      },
+      "required": ["type", "messageId", "snapshot", "isSnapshotUpdate"],
+      "additionalProperties": false
+    },
+
+    "attributionSnapshotRecord": {
+      "type": "object",
+      "description": "Attribution snapshot. Metadata-only (no envelope).",
+      "properties": {
+        "type":      { "const": "attribution-snapshot" },
+        "messageId": { "$ref": "#/$defs/uuid" }
+      },
+      "required": ["type", "messageId"],
+      "additionalProperties": true
+    },
+
+    "queueOperationRecord": {
+      "type": "object",
+      "description": "Command queue operation. Metadata-only (no envelope).",
+      "properties": {
+        "type":      { "const": "queue-operation" },
+        "operation": { "type": "string", "enum": ["enqueue", "dequeue", "remove", "popAll"] },
+        "timestamp": { "$ref": "#/$defs/isoTimestamp" },
+        "sessionId": { "$ref": "#/$defs/uuid" },
+        "content":   { "description": "Queued content (any type)" }
+      },
+      "required": ["type", "operation", "timestamp", "sessionId"],
+      "additionalProperties": false
+    },
+
+    "speculationAcceptRecord": {
+      "type": "object",
+      "description": "Speculation accept event. Metadata-only (no envelope).",
+      "properties": {
+        "type":        { "const": "speculation-accept" },
+        "timestamp":   { "$ref": "#/$defs/isoTimestamp" },
+        "timeSavedMs": { "type": "number", "description": "Milliseconds saved by speculation" }
+      },
+      "required": ["type", "timestamp", "timeSavedMs"],
+      "additionalProperties": false
+    }
+  }
+}
