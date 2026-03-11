@@ -84,10 +84,18 @@ def analyze_session(fpath):
 
     # Build compaction entries with segment sizes between boundaries
     segment_ends = compaction_indices[1:] + [len(records)]
-    compactions = [
-        {"index": boundary_idx, "entries_after": end - boundary_idx - 1}
-        for boundary_idx, end in zip(compaction_indices, segment_ends)
-    ]
+    compactions = []
+    for boundary_idx, end in zip(compaction_indices, segment_ends):
+        entry = {"index": boundary_idx, "entries_after": end - boundary_idx - 1}
+        boundary_record = records[boundary_idx]
+        compact_meta = boundary_record.get("compactMetadata")
+        if compact_meta is not None:
+            entry["compactMetadata"] = compact_meta
+        logical_parent = boundary_record.get("logicalParentUuid")
+        if logical_parent is not None:
+            entry["logicalParentUuid"] = logical_parent
+        entry["is_partial"] = logical_parent is not None
+        compactions.append(entry)
 
     timestamps = [r.get("timestamp") for r in records if r.get("timestamp")]
     date_range = [timestamps[0], timestamps[-1]] if timestamps else [None, None]

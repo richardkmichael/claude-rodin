@@ -239,7 +239,7 @@ python3 scripts/session-info.py <session.jsonl>
 Outputs JSON with:
 - `entry_count`, `date_range` — session size and timespan
 - `compactions` — array of compaction boundaries with index, entries_after,
-  and summary_file
+  summary_file, compactMetadata, is_partial, and logicalParentUuid (if partial)
 - `link_type` — how this session was created: `"clear-context"`, `"fork"`,
   or `null` (original session)
 - `parent` — info for the parent session (clear-context or fork origin)
@@ -267,9 +267,18 @@ The `agent-acompact-*.jsonl` files in `<session-id>/subagents/` contain the
 compaction agent's own transcript — useful for reading the summary the model
 was given (rather than the original content).
 
+Partial compaction ("Summarize from here") works similarly but only summarizes
+a range of messages. The `compact_boundary` record includes a
+`logicalParentUuid` pointing to the UUID of the last kept message. Records
+between that UUID and the boundary are the summarized range; records before
+that UUID remain in the model's active context. The accompanying summary user
+record has both `isCompactSummary: true` and a `summarizeMetadata` field with
+`messagesSummarized` and `userContext`. The `compactMetadata` on the boundary
+also includes `messagesSummarized` and optionally `userContext`.
+
 ## Context interruption mechanisms
 
-Three commands affect session context:
+Four mechanisms affect session context:
 - `/compact` creates a boundary within the same JSONL file. All original
   entries remain at their original indices; only the model's active context
   is replaced with a summary.
@@ -280,6 +289,12 @@ Three commands affect session context:
   in the fork has a `forkedFrom` field with the original session ID. The
   original session continues independently. When searching with `/history all`,
   be aware that forks contain duplicate content from their parent.
+- "Summarize from here" (ESC ESC message selector) creates a `compact_boundary`
+  in the same JSONL file, but only summarizes a range of messages rather than
+  everything before the boundary. The boundary record has a `logicalParentUuid`
+  pointing to the last kept message; records between that UUID and the boundary
+  are the summarized messages. `session-info.py` exposes this as `is_partial:
+  true` and includes the `logicalParentUuid` on the compaction entry.
 
 ## Index convention
 

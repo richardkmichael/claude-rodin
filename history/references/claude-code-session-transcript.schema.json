@@ -43,7 +43,7 @@
       "description": "Fields added by insertMessageChain() to every conversation record (lines 516449-516463). Merged at top level via spread.",
       "properties": {
         "parentUuid":        { "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }], "description": "UUID of previous message; null at compact_boundary or first message" },
-        "logicalParentUuid": { "$ref": "#/$defs/uuid", "description": "UUID bridging across compaction boundaries" },
+        "logicalParentUuid": { "$ref": "#/$defs/uuid", "description": "UUID bridging across compaction boundaries. On a compact_boundary record, if present, identifies the last kept message in a partial compaction (\"Summarize from here\"); records between this UUID and the boundary are the summarized range" },
         "isSidechain":       { "type": "boolean", "description": "Whether this is a subagent conversation" },
         "teamName":          { "type": "string", "description": "Team name if in a team context" },
         "agentName":         { "type": "string", "description": "Agent name within a team" },
@@ -210,7 +210,14 @@
         "isMeta":                    { "type": "boolean", "description": "True for injected meta-messages" },
         "isVisibleInTranscriptOnly": { "type": "boolean", "description": "Display-only message, not sent to API" },
         "isCompactSummary":          { "type": "boolean", "description": "True when this is a compaction summary" },
-        "summarizeMetadata":         { "type": "object", "description": "Present on compaction summaries" },
+        "summarizeMetadata": {
+          "type": "object",
+          "description": "Present on partial compaction summaries (\"Summarize from here\"). Accompanies isCompactSummary: true.",
+          "properties": {
+            "messagesSummarized": { "type": "integer", "description": "Number of messages that were summarized" },
+            "userContext":        { "type": "string", "description": "User-provided context text from the summarize dialog, if any" }
+          }
+        },
         "toolUseResult": {
           "oneOf": [
             {
@@ -454,12 +461,12 @@
 
         "compactMetadata": {
           "type": "object",
-          "description": "Present when subtype is \"compact_boundary\"",
+          "description": "Present when subtype is \"compact_boundary\". For partial compaction (\"Summarize from here\"), includes messagesSummarized and optionally userContext.",
           "properties": {
-            "trigger":            { "type": "string" },
-            "preTokens":          { "type": "integer" },
-            "userContext":        { "type": "string" },
-            "messagesSummarized": { "type": "integer" }
+            "trigger":            { "type": "string", "description": "What triggered compaction, e.g. \"auto\", \"manual\", \"summarize\"" },
+            "preTokens":          { "type": "integer", "description": "Token count before compaction" },
+            "userContext":        { "type": "string", "description": "User-provided context text for partial compaction (\"Summarize from here\"). Optional; only present when the user entered context in the summarize dialog." },
+            "messagesSummarized": { "type": "integer", "description": "Number of messages that were summarized. Present for both full and partial compaction." }
           },
           "required": ["trigger", "preTokens"]
         },
