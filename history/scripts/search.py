@@ -12,6 +12,7 @@ Filters (narrow which records to search):
   --before N         Only search lines with index < N (0-based).
                      Use with scope.py to limit to pre-compaction content.
   --after N          Only search lines with index > N (0-based).
+  --limit N          Cap output at N matches (default: unlimited).
 
 Output:
   --field PATH       Dotted path to extract from matching records instead of
@@ -213,6 +214,7 @@ def main():
     parser.add_argument("--tool", help="Tool name (matches assistant tool_use blocks, '*' for any)")
     parser.add_argument("--before", type=int, help="Only lines with index < N")
     parser.add_argument("--after", type=int, help="Only lines with index > N")
+    parser.add_argument("--limit", type=int, help="Cap output at N matches")
     parser.add_argument("--field", help="Dotted path to extract (e.g. message.usage)")
     parser.add_argument("--full", action="store_true", help="Output full JSON records")
     parser.add_argument("--count", action="store_true", help="Just print match count")
@@ -242,19 +244,19 @@ def main():
             print(f"=== {fpath} ===")
 
         try:
-            with open(fpath) as f:
-                lines = f.readlines()
+            f = open(fpath)
         except FileNotFoundError:
             print(f"File not found: {fpath}", file=sys.stderr)
             continue
 
         file_count = 0
-        for idx, raw in enumerate(lines):
+        hit_limit = False
+        for idx, raw in enumerate(f):
             raw = raw.strip()
             if not raw:
                 continue
 
-            # Range filters
+            # Range filters — skip early if past the window
             if args.before is not None and idx >= args.before:
                 continue
             if args.after is not None and idx <= args.after:
@@ -288,7 +290,14 @@ def main():
             else:
                 print(format_summary(idx, record))
 
+            if args.limit is not None and file_count >= args.limit:
+                hit_limit = True
+                break
+
+        f.close()
         total_count += file_count
+        if hit_limit:
+            break
 
     if args.count:
         print(total_count)
