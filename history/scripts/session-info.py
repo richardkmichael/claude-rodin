@@ -94,7 +94,7 @@ def analyze_session(fpath):
         logical_parent = boundary_record.get("logicalParentUuid")
         if logical_parent is not None:
             entry["logicalParentUuid"] = logical_parent
-        entry["is_partial"] = logical_parent is not None
+        entry["is_partial"] = compact_meta is not None and "messagesSummarized" in compact_meta
         compactions.append(entry)
 
     timestamps = [r.get("timestamp") for r in records if r.get("timestamp")]

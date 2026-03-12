@@ -263,7 +263,7 @@ python3 ${CLAUDE_SKILL_DIR}/scripts/session-info.py <session.jsonl>
 Outputs JSON with:
 - `entry_count`, `date_range` — session size and timespan
 - `compactions` — array of compaction boundaries with index, entries_after,
-  summary_file, compactMetadata, is_partial, and logicalParentUuid (if partial)
+  summary_file, compactMetadata, is_partial, and logicalParentUuid
 - `link_type` — how this session was created: `"clear-context"`, `"fork"`,
   or `null` (original session)
 - `parent` — info for the parent session (clear-context or fork origin)

@@ -22,13 +22,16 @@ compaction agent's own transcript — useful for reading the summary the model
 was given (rather than the original content).
 
 Partial compaction ("Summarize from here") works similarly but only summarizes
-a range of messages. The `compact_boundary` record includes a
-`logicalParentUuid` pointing to the UUID of the last kept message. Records
-between that UUID and the boundary are the summarized range; records before
-that UUID remain in the model's active context. The accompanying summary user
-record has both `isCompactSummary: true` and a `summarizeMetadata` field with
-`messagesSummarized` and `userContext`. The `compactMetadata` on the boundary
-also includes `messagesSummarized` and optionally `userContext`.
+a range of messages. The `compact_boundary` record's `compactMetadata` includes
+`messagesSummarized` (integer) and `userContext` (string) — these fields are
+only present on partial compaction and are the correct way to distinguish it
+from full compaction. The `logicalParentUuid` field is present on all
+`compact_boundary` records (full and partial) and points to the UUID of the
+last message before the boundary. For partial compaction, this is the last
+kept message — records between it and the boundary are the summarized range;
+records before it remain in the model's active context. The accompanying
+summary user record has `isCompactSummary: true` and a `summarizeMetadata`
+field with `messagesSummarized` and `userContext`.
 
 ## Context interruption mechanisms
 
@@ -45,10 +48,9 @@ Four mechanisms affect session context:
   be aware that forks contain duplicate content from their parent.
 - "Summarize from here" (ESC ESC message selector) creates a `compact_boundary`
   in the same JSONL file, but only summarizes a range of messages rather than
-  everything before the boundary. The boundary record has a `logicalParentUuid`
-  pointing to the last kept message; records between that UUID and the boundary
-  are the summarized messages. `session-info.py` exposes this as `is_partial:
-  true` and includes the `logicalParentUuid` on the compaction entry.
+  everything before the boundary. Distinguished by `messagesSummarized` and
+  `userContext` in `compactMetadata`. `session-info.py` exposes this as
+  `is_partial: true`.
 
 ## Schema reference: inline query example
 
