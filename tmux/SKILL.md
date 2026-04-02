@@ -3,11 +3,16 @@ name: tmux
 description: "Use interactive CLIs (git, python, gdb, etc.) with tmux by sending keystrokes and scraping pane output."
 allowed-tools: "Read(//tmp/claude-edit-*/**), Edit(//tmp/claude-edit-*/**), Bash(tmux *), Bash(*/scripts/start-session.sh *), Bash(*/scripts/stop-session.sh *), Bash(*/scripts/send-and-wait.sh *), Bash(*/scripts/wait-for-text.sh *), Bash(*/scripts/find-sessions.sh *)"
 hooks:
+  PermissionRequest:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: "$CLAUDE_SKILL_DIR/scripts/permit-tmux-commands.sh"
   PostToolUse:
     - matcher: "*"
       hooks:
         - type: command
-          command: "/path/to/.claude/skills/tmux/scripts/post-start-session-hook.sh"
+          command: "$CLAUDE_SKILL_DIR/scripts/post-start-session-hook.sh"
 ---
 
 # tmux Skill
