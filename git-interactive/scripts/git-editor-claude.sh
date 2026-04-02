@@ -14,7 +14,7 @@ set -euo pipefail
 #
 # Why copy to CONTENT instead of editing git's file directly?
 #   Git's temp file paths vary (.git/addp-hunk-edit.diff, /tmp/git-commit-XXX, etc.)
-#   Copying to a predictable location (/tmp/claude-edit-*/) allows the skill's
+#   Copying to a predictable location (/tmp/claude-git-editor-*/) allows the skill's
 #   allowed-tools pattern to auto-permit Read/Edit without prompts.
 
 usage() {
@@ -40,7 +40,7 @@ Git behavior on exit:
   Exit 1: Git aborts the operation (commit cancelled, rebase aborted, etc.)
 
 Example:
-  EDIT_DIR=$(mktemp -d /tmp/claude-edit-XXXXXX)
+  EDIT_DIR=$(mktemp -d /tmp/claude-git-editor-XXXXXX)
   GIT_EDITOR="git-editor-claude.sh -d $EDIT_DIR" git rebase -i HEAD~3
   # Monitor $EDIT_DIR/READY, edit $EDIT_DIR/CONTENT, touch $EDIT_DIR/DONE
 USAGE

@@ -1,17 +1,36 @@
 ---
 name: git-interactive
-description: "Reorganize and reshape git commit history: rebase -i, split commits, add -p, rebase --onto. Uses the tmux skill for terminal sessions."
-allowed-tools: "Read(//tmp/claude-edit-*/**), Edit(//tmp/claude-edit-*/**), Bash(git *), Bash(touch /tmp/claude-edit-*/*), Bash(rm /tmp/claude-edit-*/*), Bash(rm -rf /tmp/claude-edit-*/), Bash(cp /tmp/claude-edit-* /tmp/*), Bash(mktemp *), Bash(*/scripts/git-editor-claude.sh *)"
+description: "Reorganize and reshape git commit history: interactive rebase, split commits, squash, fixup, reorder commits, amend old commits, add -p, rebase --onto. Use this skill when the user wants to clean up commits, rewrite history, or make commits semantically atomic. Uses the tmux skill for terminal sessions."
+allowed-tools: "Read(//tmp/claude-git-editor-*/**), Edit(//tmp/claude-git-editor-*/**), Bash(git *), Bash(touch /tmp/claude-git-editor-*/*), Bash(rm /tmp/claude-git-editor-*/*), Bash(rmdir /tmp/claude-git-editor-*/), Bash(cp /tmp/claude-git-editor-* /tmp/*), Bash(mktemp */claude-git-editor-*), Bash(rm /tmp/claude-git-editor-*), Bash(*/scripts/git-editor-claude.sh *)"
+hooks:
+  PermissionRequest:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: "$CLAUDE_SKILL_DIR/scripts/permit-git-interactive.sh"
 ---
 
 # git-interactive Skill
 
 Reshape and reorganize git commit history. This skill builds on the tmux skill
-— use the tmux skill to start a `git` session, then follow these workflows.
-Use the returned `socket` as `$SOCKET` and `target` as `$TARGET` throughout.
+— use the tmux skill to start a session, then follow these workflows.
 
 The goal is semantically atomic commits: each commit contains one logical change,
 described accurately, in a sensible sequence.
+
+## Setup
+
+Start a tmux session using the tmux skill, then set up the editor:
+
+```bash
+CLAUDE_GIT_EDITOR_DIR=$(mktemp -d /tmp/claude-git-editor-XXXXXX)
+EDITOR_CMD="$CLAUDE_SKILL_DIR/scripts/git-editor-claude.sh -d $CLAUDE_GIT_EDITOR_DIR"
+```
+
+Always use the `/tmp/claude-git-editor-XXXXXX` template for `mktemp` — paths under
+`/tmp/claude-git-editor-*` are auto-permitted by this skill's allowed-tools. Using
+`mktemp -d` without the template produces `$TMPDIR`-based paths that may contain
+spaces and will not be auto-permitted.
 
 ## Always assess first
 
@@ -32,7 +51,7 @@ If you're confident, proceed — but state what you're about to do.
 ## The editor protocol (READY/DONE)
 
 `git-editor-claude.sh` is a blocking editor for steps that require message
-editing. Git calls it with a file path; it copies to `$EDIT_DIR/CONTENT`,
+editing. Git calls it with a file path; it copies to `$CLAUDE_GIT_EDITOR_DIR/CONTENT`,
 creates `READY`, and waits for `DONE`, then copies back and exits.
 
 Only needed for:
@@ -41,29 +60,23 @@ Only needed for:
 - `edit` stop — when you need to amend a commit message mid-rebase
 - `git commit` without `-m`
 
-Setup:
-```bash
-EDIT_DIR=$(mktemp -d /tmp/claude-edit-XXXXXX)
-EDITOR_CMD="$SKILL_DIR/scripts/git-editor-claude.sh -d $EDIT_DIR"
-```
-
 Wait/signal pattern:
 ```bash
-while [[ ! -f "$EDIT_DIR/READY" ]]; do sleep 0.5; done
-# Read $EDIT_DIR/CONTENT, edit it
-touch "$EDIT_DIR/DONE"
+while [[ ! -f "$CLAUDE_GIT_EDITOR_DIR/READY" ]]; do sleep 0.5; done
+# Read $CLAUDE_GIT_EDITOR_DIR/CONTENT, edit it
+touch "$CLAUDE_GIT_EDITOR_DIR/DONE"
 # Immediately wait for next READY if more invocations expected
 ```
 
 ## Pre-generating the todo list
 
 When you already know what operations to perform, skip the READY/DONE round-trip
-for the sequence editor entirely. Write the todo to a temp file and pass it
-directly to git via `cp`:
+for the sequence editor entirely. Write the todo to a temp file (always via
+`mktemp`, never a hardcoded path) and pass it directly to git via `cp`:
 
 ```bash
 # Build the todo list
-TODO=$(mktemp)
+TODO=$(mktemp /tmp/claude-git-editor-XXXXXX)
 cat > "$TODO" <<'EOF'
 pick abc1234 Add authentication middleware
 reword def5678 Fix typo in login handler
@@ -98,7 +111,7 @@ Assess the log, build the todo, run with pre-generated sequence:
 git log --oneline -10
 
 # Build todo (reorder lines to reorder commits)
-TODO=$(mktemp)
+TODO=$(mktemp /tmp/claude-git-editor-XXXXXX)
 cat > "$TODO" <<'EOF'
 pick <hash> <message>
 squash <hash> <message>   # fold into previous, combine messages
@@ -155,7 +168,7 @@ Use when a commit contains multiple unrelated changes that should be separate co
 Use `edit` in the todo to stop at a commit and amend it:
 
 ```bash
-TODO=$(mktemp)
+TODO=$(mktemp /tmp/claude-git-editor-XXXXXX)
 printf 'edit %s %s\n' "<hash>" "<message>" > "$TODO"
 # ... other lines as pick
 GIT_SEQUENCE_EDITOR="cp $TODO" GIT_EDITOR="$EDITOR_CMD" git rebase -i <base>
@@ -191,10 +204,15 @@ Hunk prompts and responses:
 - `e` — edit the hunk manually (opens `GIT_EDITOR`)
 - `q` — quit, leaving remaining hunks unchanged
 
-Capture the pane after each action to see the current hunk and prompt:
+These prompts require the response character followed by Enter:
 ```bash
-tmux -L $SOCKET capture-pane -p -J -t $TARGET -S -50
+tmux -L $SOCKET send-keys -t $TARGET e Enter
 ```
+
+Do not omit `Enter` — the character alone will not submit the response.
+
+Capture the pane after each action to see the current hunk and prompt.
+Use the tmux skill to read the pane output.
 
 Editing a hunk in CONTENT (`e`):
 - `-` lines: change to ` ` (space) to leave that deletion unstaged
@@ -224,6 +242,12 @@ Tell the user before running `git rebase --abort`.
 
 ## Safety
 
+### Never use `git rm` to remove a file from history
+
+`git rm <file>` deletes the working tree copy. To remove a file from a commit
+while keeping it locally: use `edit`, then `git reset HEAD~ -- <file>`, then
+`git commit --amend --no-edit`, then `git rebase --continue`.
+
 ### Recovery tag
 
 Before any non-trivial rebase, create a throwaway tag as an instant recovery point:
@@ -243,12 +267,21 @@ When done and satisfied with the result: `git tag -d claude-was-here/<descriptio
 
 Never push these tags (`git push --tags` would include them). Local recovery only.
 
+### When to bail out
+
+If conflicts cascade or the rebase is going sideways, recover using the tag:
+
+```bash
+git rebase --abort                              # if rebase is still in progress
+git reset --hard claude-was-here/<description>  # restore to pre-rebase state
+git tag -d claude-was-here/<description>        # clean up the tag
+```
+
+Tell the user before aborting. Show `git reflog` if they want to understand
+what happened.
+
 ### Other rules
 
-- Never `git rm <file>` to remove from history — it deletes the working tree copy.
-  To remove a file from a commit while keeping it locally: use `edit`, then
-  `git reset HEAD~ -- <file>`, then `git commit --amend --no-edit`, then
-  `git rebase --continue`.
 - Show `git reflog` when something goes wrong or when the user asks.
   Do not show it implicitly on success.
 - After completing a rebase, show `git log --oneline` so the user can verify
@@ -263,8 +296,7 @@ Never push these tags (`git push --tags` would include them). Local recovery onl
 ## Cleanup
 
 ```bash
-rm -rf "$EDIT_DIR"
+rm "$CLAUDE_GIT_EDITOR_DIR"/CONTENT "$CLAUDE_GIT_EDITOR_DIR"/READY "$CLAUDE_GIT_EDITOR_DIR"/DONE 2>/dev/null; rmdir "$CLAUDE_GIT_EDITOR_DIR"
 ```
 
-Stop the git tmux server using the tmux skill's `stop-session.sh`
-(use the base directory shown when `/tmux` loaded).
+Stop the tmux session using the tmux skill.
