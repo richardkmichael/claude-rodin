@@ -3,8 +3,8 @@
   "$id": "https://github.com/anthropics/claude-code/session-transcript-line",
   "title": "Claude Code Session Transcript Line",
   "description": "Schema for a single line in a Claude Code JSONL session transcript file (~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl). Derived from source analysis of cli.prettier.js 2.1.63; no official schema exists.",
-  "x-schema-version": "1.0.0",
-  "$comment": "Schema version 1.0.0. Validated against 248,000+ lines across 493 sessions spanning Claude Code versions 2.0.24 through 2.1.68.",
+  "x-schema-version": "1.1.0",
+  "$comment": "Schema version 1.1.0. Validated against 264,000+ lines across 517 sessions spanning Claude Code versions 2.0.24 through 2.1.76.",
   "oneOf": [
     { "$ref": "#/$defs/userRecord" },
     { "$ref": "#/$defs/assistantRecord" },
@@ -22,7 +22,8 @@
     { "$ref": "#/$defs/fileHistorySnapshotRecord" },
     { "$ref": "#/$defs/attributionSnapshotRecord" },
     { "$ref": "#/$defs/queueOperationRecord" },
-    { "$ref": "#/$defs/speculationAcceptRecord" }
+    { "$ref": "#/$defs/speculationAcceptRecord" },
+    { "$ref": "#/$defs/lastPromptRecord" }
   ],
   "$defs": {
 
@@ -53,7 +54,8 @@
         "version":           { "type": "string", "description": "Claude Code version, e.g. \"2.1.63\"" },
         "gitBranch":         { "type": "string", "description": "Current git branch" },
         "agentId":           { "type": "string", "description": "Agent ID for subagent transcripts" },
-        "slug":              { "type": "string", "description": "Human-readable session slug, e.g. \"cozy-baking-anchor\"" }
+        "slug":              { "type": "string", "description": "Human-readable session slug, e.g. \"cozy-baking-anchor\"" },
+        "entrypoint":        { "type": "string", "description": "How the session was started, e.g. \"cli\"" }
       },
       "required": ["parentUuid", "isSidechain", "userType", "cwd", "sessionId", "version"]
     },
@@ -259,6 +261,9 @@
           "description": "Present when extended thinking is active"
         },
         "todos": { "type": "array", "description": "Todo list state snapshot" },
+        "promptId":          { "$ref": "#/$defs/uuid", "description": "UUID linking this user message to its prompt" },
+        "sourceToolUseID":   { "type": "string", "description": "Tool use ID that produced this user record (alternative to sourceToolAssistantUUID)" },
+        "planContent":       { "type": "string", "description": "Plan file content when entering or updating plan mode" },
 
         "parentUuid":        {},
         "logicalParentUuid": {},
@@ -271,7 +276,8 @@
         "version":           {},
         "gitBranch":         {},
         "agentId":           {},
-        "slug":              {}
+        "slug":              {},
+        "entrypoint":        {}
       },
       "required": ["type", "uuid", "timestamp", "message"],
       "additionalProperties": true
@@ -322,7 +328,8 @@
         "version":           {},
         "gitBranch":         {},
         "agentId":           {},
-        "slug":              {}
+        "slug":              {},
+        "entrypoint":        {}
       },
       "required": ["type", "uuid", "timestamp", "message"],
       "additionalProperties": true
@@ -367,7 +374,8 @@
         "version":           {},
         "gitBranch":         {},
         "agentId":           {},
-        "slug":              {}
+        "slug":              {},
+        "entrypoint":        {}
       },
       "required": ["type", "uuid", "timestamp", "toolUseID", "data"],
       "additionalProperties": true
@@ -435,7 +443,8 @@
         "version":           {},
         "gitBranch":         {},
         "agentId":           {},
-        "slug":              {}
+        "slug":              {},
+        "entrypoint":        {}
       },
       "required": ["type", "uuid", "timestamp", "attachment"],
       "additionalProperties": true
@@ -450,7 +459,7 @@
         "type":      { "const": "system" },
         "subtype": {
           "type": "string",
-          "enum": ["compact_boundary", "microcompact_boundary", "local_command", "api_error", "stop_hook_summary", "turn_duration"],
+          "enum": ["compact_boundary", "microcompact_boundary", "local_command", "api_error", "stop_hook_summary", "turn_duration", "informational", "bridge_status"],
           "description": "System event subtype"
         },
         "uuid":      { "$ref": "#/$defs/uuid" },
@@ -490,6 +499,9 @@
         "retryAttempt":  { "type": "integer", "description": "Present when subtype is \"api_error\"" },
         "maxRetries":   { "type": "integer", "description": "Present when subtype is \"api_error\"" },
 
+        "durationMs":   { "type": "number", "description": "Present when subtype is \"turn_duration\"; elapsed time of the model turn in milliseconds" },
+        "url":          { "type": "string", "format": "uri", "description": "Present when subtype is \"bridge_status\"; URL for the remote control session" },
+
         "parentUuid":        {},
         "logicalParentUuid": {},
         "isSidechain":       {},
@@ -501,7 +513,8 @@
         "version":           {},
         "gitBranch":         {},
         "agentId":           {},
-        "slug":              {}
+        "slug":              {},
+        "entrypoint":        {}
       },
       "required": ["type", "subtype", "uuid", "timestamp"],
       "additionalProperties": true
@@ -666,6 +679,18 @@
         "timeSavedMs": { "type": "number", "description": "Milliseconds saved by speculation" }
       },
       "required": ["type", "timestamp", "timeSavedMs"],
+      "additionalProperties": false
+    },
+
+    "lastPromptRecord": {
+      "type": "object",
+      "description": "Records the last user prompt text. Metadata-only (no envelope).",
+      "properties": {
+        "type":       { "const": "last-prompt" },
+        "lastPrompt": { "type": "string", "description": "Text of the last user prompt" },
+        "sessionId":  { "$ref": "#/$defs/uuid" }
+      },
+      "required": ["type", "lastPrompt", "sessionId"],
       "additionalProperties": false
     }
   }
