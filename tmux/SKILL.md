@@ -7,12 +7,12 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          command: "$CLAUDE_SKILL_DIR/scripts/permit-tmux-commands.sh"
+          command: "scripts/permit-tmux-commands.sh"
   PostToolUse:
     - matcher: "*"
       hooks:
         - type: command
-          command: "$CLAUDE_SKILL_DIR/scripts/post-start-session-hook.sh"
+          command: "scripts/post-start-session-hook.sh"
 ---
 
 # tmux Skill
