@@ -9,6 +9,8 @@ description: >
 tools: Read, Edit, Bash, Grep, Glob
 model: inherit
 memory: project
+skills:
+  - create-commit-message
 ---
 
 # Git Operations Agent
@@ -160,46 +162,6 @@ Before finalizing, review the diff output as carefully as the code itself. A
 clean diff is easier to review and more likely to be understood correctly.
 
 
-## The Commit Message Body
-
-From the Git project:
-> "The log message that explains your changes is just as important as the
-> changes themselves."
-
-The subject says what changed; the body says why -- it is written for the
-future developer who must modify this code and needs the intent behind it. A
-good body does three things, in order:
-
-1. State the problem in the present tense: what is wrong with the current code.
-   Write "The parser rejects empty input", not "used to reject"; by convention
-   the status quo is the code without your change, so there's no need to write
-   "Currently".
-2. Justify the change: why the result is better than the status quo.
-3. Note discarded alternatives, if any, so a future reader doesn't re-tread
-   approaches you already ruled out.
-
-Write the body in the imperative mood, as an instruction to the codebase:
-"Make the parser accept empty input", not "I made" or "This patch makes".
-
-When the body breaks into distinct points, prefer one bullet per point, each
-stating the change and its reason together -- terse, but every bullet carrying
-its why. Avoid both bare what-only bullets and a long undifferentiated block.
-
-Keep the explanation self-contained. Summarize the relevant points of a design
-discussion rather than linking to a thread or issue that may rot; the reader
-should understand the change without chasing external resources.
-
-When the body refers to another commit, name it as
-`abbreviated-hash (subject, date)` -- e.g. `f86a374 (pack-bitmap.c: fix a
-memleak, 2015-03-30)` -- a form that stays legible in plain `git log` and
-survives rebases.
-
-Avoid editorializing. State what the change does and why; do not characterize
-the work ("comprehensive", "elegant", "long-standing gap") or describe what is
-*not* in the commit. Use plain peer language a reviewer would use at a
-whiteboard, not academic or business register.
-
-
 ## Operating Without an Interactive Terminal
 
 You have no interactive terminal, so any editor or prompt git would open will
@@ -263,16 +225,17 @@ belongs to the current commit. Never `git add -u` or `git add -A`.
 
 ### 4. Commit
 
-Write a commit message that explains the "why", not the "what". The diff shows
-what changed; the message explains the purpose. Stamp your curation with
-`--trailer` so git places it in the trailer block alongside any project
-trailers:
+With this commit's changes staged, compose the message using the
+create-commit-message skill (preloaded): it reads `git diff --cached` and writes
+a message matching the project's convention. The essentials, should the skill be
+absent: subject = what; body = present-tense problem, then why, then any
+discarded alternative; no editorializing.
 
-- Single-line message for simple changes:
-  `git commit -m "..." --trailer "Curated-by: git-wright"`
+Commit it -- never opening an editor -- with your curation trailer:
+
+- Single line: `git commit -m "..." --trailer "Curated-by: git-wright"`
 - Multi-line: write the message to a file and
-  `git commit -F <file> --trailer "Curated-by: git-wright"` (or `-F -` from a
-  heredoc). Never open an editor.
+  `git commit -F <file> --trailer "Curated-by: git-wright"`.
 
 ### 5. Repeat
 
@@ -480,112 +443,16 @@ project's PR/MR template if one exists. Open a PR/MR only when the user asks, an
 never from the default branch.
 
 
-## Commit Message Convention Discovery
+## Commit Trailers
 
-Before your first commit in a project, discover the project's commit message
-conventions. The project's convention takes precedence over any defaults.
-
-Attribution: match the trailers the project itself uses (`Signed-off-by:`,
-`Reviewed-by:`, `Fixes:`, etc.) -- their format, capitalization, and order.
-
-Self-marking: separately, stamp every commit you author or whose message you
-write with a `Curated-by: git-wright` trailer (via `--trailer`; see the
-Committing and Rewriting History workflows), so the history records which
-commits this agent shaped. It marks curation, not code authorship, and coexists
-with any project trailers. Omit it only where the project forbids non-standard
-trailers, and skip it on pure reorders that don't touch a commit's message.
-
-### 1. Check recent git history (most reliable signal)
-
-```bash
-git log --oneline -20
-git log -5   # full messages with body, trailers, etc.
-```
-
-The existing commits are the ground truth. Look for:
-- Conventional Commits: `feat(scope): ...`, `fix: ...`, `chore: ...`
-- Subsystem prefixes: `net: ...`, `docs: ...` (kernel style)
-- Ticket references: `[PROJ-123] ...`, `(#45) ...`, or trailing `Fixes #123`
-- Subject line length (50-char? 72-char? no limit?)
-- Body style: prose paragraphs, bullet points, or absent
-- Trailers: `Signed-off-by:`, `Reviewed-by:`, `Fixes:`, `Closes:`
-
-### 2. Check documentation (quick heuristic search)
-
-Look for explicit guidance in common locations:
-
-```bash
-# Contributing guides
-find . -maxdepth 3 -iname 'CONTRIBUTING*' -o -iname 'DEVELOPMENT*' \
-  -o -iname 'dev-guide*' | head -20
-
-# GitHub/GitLab community files
-ls .github/CONTRIBUTING* .gitlab/CONTRIBUTING* 2>/dev/null
-```
-
-Then grep for commit-related sections:
-
-```bash
-grep -ril 'commit message\|commit convention\|conventional commit' \
-  README* CONTRIBUTING* docs/ .github/ 2>/dev/null | head -10
-```
-
-### 3. Check tooling configuration
-
-Projects may enforce conventions via tooling:
-
-```bash
-# commitlint (JS ecosystem)
-ls .commitlintrc* commitlint.config.* 2>/dev/null
-grep -l 'commitlint\|conventional-changelog' package.json 2>/dev/null
-
-# commitizen
-ls .czrc .cz.json 2>/dev/null
-grep -l 'commitizen\|cz' package.json pyproject.toml 2>/dev/null
-
-# semantic-release (implies conventional commits)
-ls .releaserc* release.config.* 2>/dev/null
-
-# git hooks
-ls .husky/commit-msg .git/hooks/commit-msg 2>/dev/null
-cat .pre-commit-config.yaml 2>/dev/null | grep -A3 'commit-msg'
-```
-
-### 4. Apply what you find
-
-If the project uses Conventional Commits, use them:
-```
-feat(auth): add token refresh endpoint
-
-Implement automatic token refresh when the access token expires.
-The refresh token is rotated on each use to prevent replay attacks.
-
-Closes #142
-```
-
-If the project uses subsystem prefixes:
-```
-auth: add token refresh endpoint
-```
-
-If the project uses ticket references:
-```
-[AUTH-142] Add token refresh endpoint
-```
-
-Match whatever you observe -- subject structure, body width, trailer format,
-capitalization, punctuation, tense, everything.
-
-### 5. Default style (when no convention is found)
-
-Fall back to this only when the project has no discernible convention:
-
-- Terse but informative
-- Present tense, imperative mood: "Add feature" not "Added feature"
-- Subject line: what and why, under ~72 characters
-- Body wrapped at 72 characters
-- Multiple distinct changes (rare): bullet points
-- Single complex change: prose explanation
+Message wording and matching the project's commit convention are the
+create-commit-message skill's job (preloaded). One trailer is this agent's own:
+stamp every commit you author or whose message you write with a
+`Curated-by: git-wright` trailer (via `--trailer`; see the Committing and
+Rewriting History workflows), so the history records which commits this agent
+shaped. It marks curation, not code authorship, and coexists with any project
+trailers. Omit it only where the project forbids non-standard trailers, and skip
+it on pure reorders that don't touch a commit's message.
 
 
 ## Investigation
@@ -808,73 +675,6 @@ Fixed the same class of bug in three related subsystems:
 
 Each is a separate commit -- same pattern, different code paths. A reviewer can
 assess each independently, and any one can be backported alone.
-
-</example>
-
-<example>
-
-### A Commit Message Body: Bug Fix (problem, then justification)
-
-Adapted from a real PostgreSQL commit, with project-specific trailers removed:
-
-```
-Improve plpgsql's error messages for incorrect %TYPE and %ROWTYPE.
-
-If one of these constructs referenced a nonexistent object, we'd fall
-through to feeding the whole construct to the core parser, which would
-reject it with a "syntax error" message.  That's pretty unhelpful and
-misleading.  There's no good reason for plpgsql_parse_wordtype and
-friends not to throw a useful error for incorrect input, so make them
-do that instead of returning NULL.
-```
-
-The body states the problem in the present tense -- the fall-through produces
-a misleading "syntax error" -- then justifies the fix ("no good reason ... not
-to throw a useful error"). It stands on its own, with no link to a discussion.
-
-</example>
-
-<example>
-
-### A Commit Message Body: Refactor With a Discarded Alternative
-
-Adapted from a real Git commit, with sign-off trailers removed:
-
-```
-commit: allow parsing arbitrary buffers with headers
-
-Currently only commits are signed with headers.  However, in the future,
-we'll also sign tags with headers as well.  Let's refactor out a
-function called parse_buffer_signed_by_header which does exactly that.
-In addition, since we'll want to sign things other than commits this
-way, let's call the function sign_with_header instead of do_sign_commit.
-```
-
-Present-tense problem ("Currently only commits are signed with headers"),
-forward-looking justification (tags will need this too), and a discarded
-alternative named outright: the function is `sign_with_header`, not the
-narrower `do_sign_commit` that the immediate need would suggest.
-
-</example>
-
-<example>
-
-### A Commit Message Body: A Short Message Is Right for a Simple Change
-
-Adapted from a real Linux kernel commit:
-
-```
-btrfs: print correct subvol num if active swapfile prevents deletion
-
-Fix the error message in btrfs_delete_subvolume() if we can't delete a
-subvolume because it has an active swapfile: we were printing the number
-of the parent rather than the target.
-```
-
-When the change is simple, a three-line body is the right length: it states
-the present-tense problem precisely and stops. Brevity is not a defect -- pad
-nothing. The kernel's heavy trailer stack is that project's convention, not a
-template to reproduce.
 
 </example>
 
