@@ -76,12 +76,32 @@ the work ("comprehensive", "elegant", "long-standing gap") or describe what is
 *not* in the commit. Use plain peer language a reviewer would use at a
 whiteboard, not academic or business register.
 
+## Formatting code in the message
+
+Follow the project's or team's commit-message guidelines where they cover
+formatting. Absent that -- and commit history doesn't count, it's too
+inconsistent to infer from -- default to:
+
+- Wrap code tokens -- identifiers, commands, flags, paths, and short single-line
+  statements like `export ENV=foo` or `let a = 10;` -- in single backticks. They
+  render as code on GitHub, GitLab, and most web forges, and a single backtick
+  reads cleanly as plain text in `git log`.
+- Reach for a fenced block (with a language specifier, Markdown-style) only when
+  a snippet shows something the diff does not -- a command to reproduce, a
+  clarifying before/after, an error message, an external config. Never fence code
+  that merely restates the diff. Most messages need only prose and inline
+  backticks.
+
 ## Output
 
 Present the finished message. Do not run `git commit` -- the caller decides
 what to do with it.
 
 ## Examples
+
+These are verbatim from their projects, which write tokens bare. They illustrate
+body structure -- problem, justification, discarded alternative -- not
+formatting; apply the inline-backtick rule above to your own messages.
 
 <examples>
 
