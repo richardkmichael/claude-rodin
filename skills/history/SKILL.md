@@ -1,276 +1,119 @@
 ---
 name: history
-disable-model-invocation: true
 description: >
-  Read and search Claude Code session transcripts (JSONL files). Use when asked
-  to look at past conversations, find something said in a previous session, extract
-  user questions from a session, recover content from before a context compaction,
-  or search across sessions for a topic or keyword.
+  Search and read past Claude Code session transcripts. Use to recall what was said or decided in an
+  earlier session, find a prior discussion by topic, recover content from before a context
+  compaction, pull up a specific session by name or ID, or investigate past sessions in detail by
+  filtering on record type, tool, subtype, or field. Searches conversation prose by default;
+  technical records (tool calls, results, system events) are reachable through filters. Typed as
+  `/history [selector] <query>`, and usable by the model to investigate history on its own.
 ---
 
-# Session History
+# Session history
 
 ## Invocation
 
-- `/history [query]` — search pre-compaction content in the current session,
-  plus any parent/child sessions linked by clear-context transitions. This
-  searches content that is no longer in the model's active context.
-- `/history all [query]` — search every session in the current project directory.
+`/history [selector] <query>` searches your conversation history and reports the matching records.
 
-## Quick start
+- `/history <query>` searches every session in the current project. This is the default and the
+  common case: "we discussed X, what did we decide?"
+- `/history <selector> <query>` searches one specific session. The `<selector>` is its name (set
+  with /rename), its UUID, or a unique UUID prefix. The session may live in another project.
 
-For a simple keyword search in the current session's pre-compaction content:
+To tell a selector from query text, resolve the leading token with `find`. If it resolves to a
+session, that token is the selector and the rest is the query. If not, the whole input is the query
+against the current project. The only ambiguous case is a query whose first word is an exact session
+name, and resolution is exact, so it is rare.
 
-```
-BOUNDARY=$(python3 ${CLAUDE_SKILL_DIR}/scripts/scope.py <session.jsonl>) || true
-if [ -n "$BOUNDARY" ]; then
-  python3 ${CLAUDE_SKILL_DIR}/scripts/search.py --before $BOUNDARY "keyword" <session.jsonl>
-else
-  # No compaction — entire session is in context; check parent chain
-  python3 ${CLAUDE_SKILL_DIR}/scripts/session-info.py <session.jsonl>
-fi
-```
+This dispatch is for interpreting a user's typed `/history` line. When the model invokes this skill
+on its own to investigate history, it calls `history.py` directly with explicit flags (for example
+`--tool Bash --query …` or `--type system --subtype api_error`) rather than going through the
+dispatch.
 
-Or use `auto-search.py` to handle scope determination automatically:
+## The driver
 
-```
-python3 ${CLAUDE_SKILL_DIR}/scripts/auto-search.py "keyword" <session.jsonl>
-```
-
-## Finding the current session file
-
-The current session's JSONL file path is available as `transcript_path` in the
-hook payload, or can be found as the most recently modified `.jsonl` file in the
-project directory matching the current session ID.
-
-Session transcripts live in `~/.claude/projects/<url-encoded-project-path>/`:
+Everything goes through one script. The current session UUID is available as `${CLAUDE_SESSION_ID}`.
+Pass it as `--session-id` so the driver can locate the current session and project.
 
 ```
-<session-id>.jsonl                 — main transcript
-<session-id>/subagents/
-  agent-<id>.jsonl                 — Task tool subagents (Explore, Plan, etc.)
-  agent-acompact-<id>.jsonl        — compaction summaries
+python ${CLAUDE_SKILL_DIR}/scripts/history.py search [--query Q] [target] [filters] [output]
+python ${CLAUDE_SKILL_DIR}/scripts/history.py fetch  --index N [N ...] [target]
+python ${CLAUDE_SKILL_DIR}/scripts/history.py find   --name X | --uuid Y
 ```
 
-The project directory is the parent directory of the current session's JSONL
-file. Never search outside the current session's project directory.
+### Verbs
 
-## Determining search scope
+- `search`: find records matching a query and/or filters. By default it searches the conversation
+  prose: your messages and the assistant's text responses. It skips tool calls, tool results, and
+  other technical records, which you reach with `--type`, `--tool`, or `--subtype`. Prints one line
+  per match, prefixed with the session name and record index as `[<name>:<index>] <role>:`, then the
+  full content, not truncated. Default target: every session in the current project.
+- `fetch`: print records by index from one session. Use it to read the records around a hit for
+  context, or records that a query did not match. Indices come from a `search` line.
+- `find`: resolve a selector to a transcript path, used to classify the leading `/history` token. It
+  prints the path. On multiple matches it uses the most recent; on no match it suggests close names.
 
-### `/history [query]` (current session)
+### Targets (search and fetch)
 
-The recommended approach is `auto-search.py`, which handles all scope logic:
+| flag          | meaning                                                       |
+| ------------- | ------------------------------------------------------------ |
+| (none)        | search: every session in the current project (the default)   |
+| `--name X`    | the session named X (any name it ever had via /rename)       |
+| `--uuid Y`    | the session UUID Y (a unique prefix works)                   |
+| `--file P`    | an explicit transcript path                                  |
+| `--project N` | every session in the project whose directory name contains N |
+| `--current`   | only the current session                                     |
 
-```
-python3 ${CLAUDE_SKILL_DIR}/scripts/auto-search.py "query" <session.jsonl>
-```
+Names resolve current-project-first, widening to all projects on a miss. The most recently modified
+session wins a tie. Always pass `--session-id ${CLAUDE_SESSION_ID}` so the default project and
+`--current` resolve correctly.
 
-This finds the compaction boundary (if any), searches pre-compaction content,
-and follows the parent chain automatically.
+A bare search (no target) searches the current project. The current session contributes only its
+out-of-context content, so the message that triggered the search is not echoed back. If the current
+project yields no match, the search widens to every project automatically, newest first and capped,
+so a forgotten session is found without naming it.
 
-For manual control, the individual steps are:
+### Filters and output (search)
 
-1. Find the current session's JSONL file.
-2. Find the last compaction boundary using `scope.py`:
-   ```
-   BOUNDARY=$(python3 ${CLAUDE_SKILL_DIR}/scripts/scope.py <session.jsonl>) || true
-   ```
-   This prints the 0-based line index of the last `compact_boundary` record,
-   or exits with code 1 (and sets BOUNDARY to empty) if no boundary exists.
-3. If BOUNDARY is non-empty: search only lines before that index:
-   ```
-   python3 ${CLAUDE_SKILL_DIR}/scripts/search.py --before $BOUNDARY "keyword" <session.jsonl>
-   ```
-   These are the entries that were summarized away from the model's context.
-4. If BOUNDARY is empty: the entire conversation is still in context.
-   Fall back to the parent chain — run
-   `python3 ${CLAUDE_SKILL_DIR}/scripts/session-info.py <session.jsonl>` and
-   follow `parent.file` paths to find prior sessions whose content is no longer
-   visible. The parent may be a clear-context parent or a fork origin
-   (`link_type` in the output).
-5. Also follow the parent chain if it exists — parent sessions are always
-   out of context. Collect `parent.file` paths from session-info output and
-   search those files entirely.
+Filters: `--type` (user, assistant, system, ...), `--tool NAME` (`*` for any), `--subtype`,
+`--before N`, `--after N`, `--limit N`. Any of `--type`, `--tool`, or `--subtype` switches off the
+prose default and searches that record category, so technical records are searched on demand.
 
-### `/history all [query]`
+Output: summaries (default), `--full` (whole JSON records), `--count`, `--field PATH` (extract a
+dotted field, e.g. `message.usage`). `--width N` truncates each match to N characters, centered on
+the match so it is never hidden; the default is full content.
 
-Search every session in the current project directory (the parent directory
-of the current session's JSONL file):
+`search --type user` with no query lists the human-typed messages. Tool results, slash commands, and
+continuation notices are filtered out.
 
-```
-python3 ${CLAUDE_SKILL_DIR}/scripts/search.py "query" <project-dir>/*.jsonl
-```
+## Mapping the invocation
 
-Never search outside the current session's project directory.
+Always pass `--session-id ${CLAUDE_SESSION_ID}`; it is omitted below for brevity.
 
-## Schema reference
+- `/history we discussed caching, what did we decide?`
+  becomes `search --query "we discussed caching, what did we decide?"`
+- `/history git-wright-revision what about the trailer?`
+  resolves the token with `find`, then
+  `search --name git-wright-revision --query "what about the trailer?"`
+- `/history e1308f50 what about the trailer?`
+  is the same, with `--uuid e1308f50` instead of `--name`.
 
-A JSON Schema for the JSONL format is included as a reference file
-(`${CLAUDE_SKILL_DIR}/references/claude-code-session-transcript.schema.json`).
-It documents all record types, their fields, and enum values.
+A search line already shows the matched record in full. To see its neighbors for context, pass the
+index and the ones around it to `fetch`, e.g. `fetch --uuid <session> --index 90 91 92`. Indices are
+0-based; the index in a `[name:index]` prefix is the one `fetch` takes.
 
-The helper scripts cover common query patterns. For queries that go beyond
-what the scripts support, consult the JSON Schema to discover field names
-and structure, then write inline Python. If a file contains records that
-don't match the schema, run the inspector to see what changed:
+## Current-session recovery
 
-```
-python3 ${CLAUDE_SKILL_DIR}/scripts/inspect-schema.py <session.jsonl>
-```
+`search --current` searches only the current session's out-of-context content, meaning everything
+before the last `compact_boundary`, plus its parent and fork chain. Use it to recover what was
+compacted away from this conversation specifically, rather than searching the whole project.
 
-For compaction internals, read
-`${CLAUDE_SKILL_DIR}/references/compaction-internals.md`.
+## Schema reference and compaction
 
-## Interpreting the query
+The bundled JSON Schema (`references/claude-code-session-transcript.schema.json`) documents every
+record type, field, and enum. Consult it to write ad-hoc queries beyond the standard verbs, for
+correct field paths, record types, and subtypes. It is a snapshot reference, not loaded at runtime;
+regenerate it from source when the transcript format drifts.
 
-The user's query may be a simple keyword, or it may reference specific record
-types or schema fields. Parse the query to decide the search strategy:
-
-- Plain text query (e.g. "find where I mentioned caching"):
-  ```
-  python3 ${CLAUDE_SKILL_DIR}/scripts/search.py "caching" <session.jsonl>
-  ```
-  Searches across all record types: message content, tool inputs, attachments,
-  and system content.
-
-- Record type filter (e.g. "my messages about X", "what did I ask about X"):
-  ```
-  python3 ${CLAUDE_SKILL_DIR}/scripts/search.py --type user "caching" <session.jsonl>
-  ```
-
-- Tool-specific query (e.g. "Bash commands that ran git", "which tools were used"):
-  ```
-  python3 ${CLAUDE_SKILL_DIR}/scripts/search.py --tool Bash "git" <session.jsonl>
-  python3 ${CLAUDE_SKILL_DIR}/scripts/search.py --tool '*' --field _tool_names <session.jsonl>
-  ```
-
-- Attachment/system subtype query (e.g. "find the plan_mode_exit attachment"):
-  ```
-  python3 ${CLAUDE_SKILL_DIR}/scripts/search.py --subtype plan_mode_exit <session.jsonl>
-  ```
-
-- Token usage query (e.g. "how many tokens were used"):
-  ```
-  python3 ${CLAUDE_SKILL_DIR}/scripts/search.py --type assistant --field message.usage <session.jsonl>
-  ```
-
-- Counting (e.g. "how many user messages"):
-  ```
-  python3 ${CLAUDE_SKILL_DIR}/scripts/search.py --type user --count <session.jsonl>
-  ```
-
-- Full record inspection (when summaries aren't enough):
-  ```
-  python3 ${CLAUDE_SKILL_DIR}/scripts/search.py --type user --full "keyword" <session.jsonl>
-  ```
-
-When the user's intent is ambiguous, default to searching all record types
-with a text pattern. When they reference specific schema concepts (record types,
-field names, attachment subtypes), use the appropriate filters.
-
-## Helper scripts
-
-### Unified search (Python)
-
-Searches pre-compaction content and follows the parent chain automatically:
-
-```
-python3 ${CLAUDE_SKILL_DIR}/scripts/auto-search.py [OPTIONS] PATTERN <session.jsonl>
-```
-
-Options: `--type`, `--subtype`, `--tool`, `--limit N`, `--full`, `--count`.
-
-Use this for the common `/history [query]` case. For `/history all` or manual
-scope control, use `search.py` directly.
-
-### Structured search (Python)
-
-The primary search tool. Supports structured filters and multiple output modes:
-
-```
-python3 ${CLAUDE_SKILL_DIR}/scripts/search.py [OPTIONS] [PATTERN] FILE [FILE...]
-```
-
-Filters:
-- `--type TYPE` — record type: user, assistant, system, attachment, progress
-- `--subtype SUB` — system subtype or attachment.type
-- `--tool TOOL` — tool name (matches tool_use blocks), `'*'` for any tool
-- `--before N` — only lines with index < N (use with scope.py)
-- `--after N` — only lines with index > N
-- `--limit N` — cap output at N matches
-
-Output:
-- (default) — one-line summary per match: `[INDEX] type role: first 300 chars`
-- `--field PATH` — extract a dotted field path (e.g. `message.usage`, `_tool_names`)
-- `--full` — full JSON record
-- `--count` — just the count of matching records
-
-PATTERN is a regex (case-insensitive). If omitted, all records matching the
-filters are returned.
-
-### Compaction boundary (Python)
-
-Find where the model's active context begins:
-
-```
-python3 ${CLAUDE_SKILL_DIR}/scripts/scope.py <session.jsonl>
-```
-
-Prints the 0-based index of the last `compact_boundary` record. Exits with
-code 1 if no boundary exists (entire session is in context).
-
-### Extracting user messages
-
-List all human-typed messages with their 0-based indices:
-
-```
-python3 ${CLAUDE_SKILL_DIR}/scripts/user-messages.py <session.jsonl>
-```
-
-Output: `[INDEX] first 200 chars of message`. Filters out tool results, teammate
-messages, compaction summaries, slash-command entries, and interrupts.
-
-### Fetching full entry text
-
-After identifying entries of interest, fetch the full text using the 0-based index:
-
-```
-python3 ${CLAUDE_SKILL_DIR}/scripts/get-entry.py <session.jsonl> <index> [index ...]
-```
-
-Works on any entry type (user, assistant, system). Shows type, role, and full
-content. For non-text content (tool results, tool use calls), shows a summary.
-
-### Schema inspector
-
-Show entry types, content formats, and top-level keys of a JSONL file:
-
-```
-python3 ${CLAUDE_SKILL_DIR}/scripts/inspect-schema.py <session.jsonl>
-```
-
-Run this on unfamiliar files to validate assumptions before deeper analysis.
-
-### Session chain info
-
-When asked about what happened in a session, or when you need to find content
-that spans multiple sessions:
-
-```
-python3 ${CLAUDE_SKILL_DIR}/scripts/session-info.py <session.jsonl>
-```
-
-Outputs JSON with:
-- `entry_count`, `date_range` — session size and timespan
-- `compactions` — array of compaction boundaries with index, entries_after,
-  summary_file, compactMetadata, is_partial, and logicalParentUuid
-- `link_type` — how this session was created: `"clear-context"`, `"fork"`,
-  or `null` (original session)
-- `parent` — info for the parent session (clear-context or fork origin)
-- `children` — sessions spawned from this one (clear-context or fork),
-  each with its own `link_type`
-
-## Index convention
-
-All scripts use 0-based indices. The index shown by `search.py` and
-`user-messages.py` is the correct index to pass to `get-entry.py`.
+For how compaction, microcompaction, forks, and clear-context are recorded, and which content is out
+of context, see `references/compaction-internals.md`.
