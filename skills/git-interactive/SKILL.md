@@ -2,12 +2,6 @@
 name: git-interactive
 description: "Reorganize and reshape git commit history: interactive rebase, split commits, squash, fixup, reorder commits, amend old commits, add -p, rebase --onto. Use this skill when the user wants to clean up commits, rewrite history, or make commits semantically atomic. Uses the tmux skill for terminal sessions."
 allowed-tools: "Read(//tmp/claude-git-editor-*/**), Edit(//tmp/claude-git-editor-*/**), Bash(git *), Bash(touch /tmp/claude-git-editor-*/*), Bash(rm /tmp/claude-git-editor-*/*), Bash(rmdir /tmp/claude-git-editor-*/), Bash(cp /tmp/claude-git-editor-* /tmp/*), Bash(mktemp */claude-git-editor-*), Bash(rm /tmp/claude-git-editor-*), Bash(*/scripts/git-editor-claude.sh *)"
-hooks:
-  PermissionRequest:
-    - matcher: "Bash"
-      hooks:
-        - type: command
-          command: "$CLAUDE_SKILL_DIR/scripts/permit-git-interactive.sh"
 ---
 
 # git-interactive Skill
