@@ -7,13 +7,7 @@
 
 set -euo pipefail
 
-# Debug: trace that the script was invoked at all
-echo "hook invoked at $(date)" > /tmp/claude-tmux-hook-trace.txt
-
 input=$(cat)
-
-# Debug: dump raw input
-printf '%s' "$input" > /tmp/claude-tmux-hook-input.json
 
 # Only handle Bash tool calls
 tool_name=$(printf '%s' "$input" | jq -r '.tool_name // empty')
@@ -35,8 +29,5 @@ if [[ ! "$command" =~ --monitor ]] && [[ ! "$command" =~ (^|[[:space:]])-m($|[[:
   msg="${msg}
 To monitor: tmux -L ${socket} attach"
 fi
-
-# Debug: write message to /tmp so we can verify the hook fired
-printf '%s\n' "$msg" > /tmp/claude-tmux-hook-debug.txt
 
 jq -n --arg msg "$msg" '{systemMessage: $msg}'

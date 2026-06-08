@@ -4,10 +4,11 @@ description: "Use interactive CLIs (git, python, gdb, etc.) with tmux by sending
 allowed-tools: "Read(//tmp/claude-edit-*/**), Edit(//tmp/claude-edit-*/**), Bash(tmux *), Bash(*/scripts/start-session.sh *), Bash(*/scripts/stop-session.sh *), Bash(*/scripts/send-and-wait.sh *), Bash(*/scripts/wait-for-text.sh *), Bash(*/scripts/find-sessions.sh *)"
 hooks:
   PostToolUse:
-    - matcher: "*"
+    - matcher: "Bash"
+      if: "Bash(*tmux*)"
       hooks:
         - type: command
-          command: "$CLAUDE_SKILL_DIR/scripts/post-start-session-hook.sh"
+          command: "${HOME}/.claude/skills/tmux/scripts/post-start-session-hook.sh"
 ---
 
 # tmux Skill
