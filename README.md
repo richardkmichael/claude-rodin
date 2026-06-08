@@ -8,7 +8,7 @@ JSONL files. Provides four bash scripts built on `jq`.
 Package the skill and install the resulting `.skill` file into Claude Code:
 
 ```
-python3 scripts/package_skill.py claude-transcripts/
+python scripts/package_skill.py claude-transcripts/
 ```
 
 The skill activates automatically when Claude is asked to look at past
@@ -253,7 +253,7 @@ outputs, making the database self-describing.
 `sqlite3` against the database. Install it like the claude-transcripts skill:
 
 ```
-python3 scripts/package_skill.py tool-monitor/skills/tool-usage/
+python scripts/package_skill.py skills/tool-usage/
 ```
 
 The skill activates when asked about tool usage statistics, recent commands,
