@@ -1,7 +1,7 @@
 ---
 name: git-interactive
 description: "Reorganize and reshape git commit history: interactive rebase, split commits, squash, fixup, reorder commits, amend old commits, add -p, rebase --onto. Use this skill when the user wants to clean up commits, rewrite history, or make commits semantically atomic. Uses the tmux skill for terminal sessions."
-allowed-tools: "Read(//tmp/claude-git-editor-*/**), Edit(//tmp/claude-git-editor-*/**), Bash(git *), Bash(touch /tmp/claude-git-editor-*/*), Bash(rm /tmp/claude-git-editor-*/*), Bash(rmdir /tmp/claude-git-editor-*/), Bash(cp /tmp/claude-git-editor-* /tmp/*), Bash(mktemp */claude-git-editor-*), Bash(rm /tmp/claude-git-editor-*), Bash(*/scripts/git-editor-claude.sh *)"
+allowed-tools: "Read(//tmp/claude-git-editor-*/**), Edit(//tmp/claude-git-editor-*/**), Write(//tmp/claude-git-editor-*/**), Bash(git *), Bash(touch /tmp/claude-git-editor-*/*), Bash(rm /tmp/claude-git-editor-*/*), Bash(rmdir /tmp/claude-git-editor-*/), Bash(cp /tmp/claude-git-editor-* /tmp/*), Bash(mktemp */claude-git-editor-*), Bash(rm /tmp/claude-git-editor-*), Bash(*/scripts/git-editor-claude.sh *)"
 ---
 
 # git-interactive Skill
@@ -65,31 +65,36 @@ touch "$CLAUDE_GIT_EDITOR_DIR/DONE"
 ## Pre-generating the todo list
 
 When you already know what operations to perform, skip the READY/DONE round-trip
-for the sequence editor entirely. Write the todo to a temp file (always via
-`mktemp`, never a hardcoded path) and pass it directly to git via `cp`:
+for the sequence editor entirely. Write the todo list with the Write tool to
+`$CLAUDE_GIT_EDITOR_DIR/todo`, then pass it to git via `cp`.
 
-```bash
-# Build the todo list
-TODO=$(mktemp /tmp/claude-git-editor-XXXXXX)
-cat > "$TODO" <<'EOF'
+Use the Write tool, not `cat >`/`printf >` redirection. The todo is authored text,
+and writes to `/tmp/claude-git-editor-*` made with a file tool are auto-permitted by
+this skill's allowed-tools; shell redirection to the same path is not (see
+`README.md`).
+
+Todo to Write at `$CLAUDE_GIT_EDITOR_DIR/todo`:
+
+```
 pick abc1234 Add authentication middleware
 reword def5678 Fix typo in login handler
 squash 9abcdef WIP: forgot error handling
 fixup 1234abc debug logging
 drop 5678def Temporary test commit
-EOF
-
-# Run rebase: sequence editor just copies our file; GIT_EDITOR handles reword/squash
-GIT_SEQUENCE_EDITOR="cp $TODO" \
-GIT_EDITOR="$EDITOR_CMD" \
-  git rebase -i HEAD~5
-
-rm "$TODO"
 ```
 
-Git calls `GIT_SEQUENCE_EDITOR <todo-file>`, which becomes `cp $TODO <todo-file>` —
-instant, no round-trip. If any commits are `reword` or `squash`, git then invokes
-`GIT_EDITOR` for those messages only.
+Then run the rebase — the sequence editor just copies our file; `GIT_EDITOR` handles
+reword/squash:
+
+```bash
+GIT_SEQUENCE_EDITOR="cp $CLAUDE_GIT_EDITOR_DIR/todo" \
+GIT_EDITOR="$EDITOR_CMD" \
+  git rebase -i HEAD~5
+```
+
+Git calls `GIT_SEQUENCE_EDITOR <todo-file>`, which becomes
+`cp $CLAUDE_GIT_EDITOR_DIR/todo <todo-file>` — instant, no round-trip. If any commits
+are `reword` or `squash`, git then invokes `GIT_EDITOR` for those messages only.
 
 Always set both `GIT_SEQUENCE_EDITOR` and `GIT_EDITOR`. If only `GIT_EDITOR` is
 set, it also handles the todo list but you lose the ability to bypass it.
@@ -101,21 +106,24 @@ set, it also handles the todo list but you lose the ability to bypass it.
 Assess the log, build the todo, run with pre-generated sequence:
 
 ```bash
-# Review
 git log --oneline -10
+```
 
-# Build todo (reorder lines to reorder commits)
-TODO=$(mktemp /tmp/claude-git-editor-XXXXXX)
-cat > "$TODO" <<'EOF'
+Write the todo to `$CLAUDE_GIT_EDITOR_DIR/todo` with the Write tool (reorder lines to
+reorder commits):
+
+```
 pick <hash> <message>
 squash <hash> <message>   # fold into previous, combine messages
 fixup <hash> <message>    # fold into previous, discard this message
 reword <hash> <message>   # keep commit, edit its message
 drop <hash> <message>     # discard commit entirely
-EOF
+```
 
-GIT_SEQUENCE_EDITOR="cp $TODO" GIT_EDITOR="$EDITOR_CMD" git rebase -i <base>
-rm "$TODO"
+Run the rebase:
+
+```bash
+GIT_SEQUENCE_EDITOR="cp $CLAUDE_GIT_EDITOR_DIR/todo" GIT_EDITOR="$EDITOR_CMD" git rebase -i <base>
 ```
 
 For `reword` and `squash`: immediately after the sequence editor exits, wait for
@@ -161,12 +169,18 @@ Use when a commit contains multiple unrelated changes that should be separate co
 
 Use `edit` in the todo to stop at a commit and amend it:
 
+Write the todo to `$CLAUDE_GIT_EDITOR_DIR/todo` with the Write tool — the target
+commit marked `edit`, the rest `pick`:
+
+```
+edit <hash> <message>
+pick <hash> <message>
+```
+
+Run the rebase, then amend at the stop:
+
 ```bash
-TODO=$(mktemp /tmp/claude-git-editor-XXXXXX)
-printf 'edit %s %s\n' "<hash>" "<message>" > "$TODO"
-# ... other lines as pick
-GIT_SEQUENCE_EDITOR="cp $TODO" GIT_EDITOR="$EDITOR_CMD" git rebase -i <base>
-rm "$TODO"
+GIT_SEQUENCE_EDITOR="cp $CLAUDE_GIT_EDITOR_DIR/todo" GIT_EDITOR="$EDITOR_CMD" git rebase -i <base>
 
 # Git stops at the commit. Make changes:
 git add <files>               # add missing changes
@@ -290,7 +304,7 @@ what happened.
 ## Cleanup
 
 ```bash
-rm "$CLAUDE_GIT_EDITOR_DIR"/CONTENT "$CLAUDE_GIT_EDITOR_DIR"/READY "$CLAUDE_GIT_EDITOR_DIR"/DONE 2>/dev/null; rmdir "$CLAUDE_GIT_EDITOR_DIR"
+rm "$CLAUDE_GIT_EDITOR_DIR"/CONTENT "$CLAUDE_GIT_EDITOR_DIR"/READY "$CLAUDE_GIT_EDITOR_DIR"/DONE "$CLAUDE_GIT_EDITOR_DIR"/todo 2>/dev/null; rmdir "$CLAUDE_GIT_EDITOR_DIR"
 ```
 
 Stop the tmux session using the tmux skill.
