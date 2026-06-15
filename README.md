@@ -3,20 +3,12 @@
 A collection of skills, subagents, and hooks for Claude Code. Each component is self-contained and
 installed independently.
 
-The repository is organized by component type:
+## Subagents
 
-- `hooks/` — event-driven scripts and binaries that fire around tool calls and the agent lifecycle
-- `skills/` — model-invoked capabilities Claude loads on demand
-- `subagents/` — delegated agents Claude can hand work to
-
-## Hooks
-
-- `tool-monitor` — captures every Claude Code tool invocation into a SQLite database via the four
-  tool-hook events, for later analysis of tool usage. A Rust binary; pairs with the `tool-usage`
-  skill. See `hooks/tool-monitor/README.md` for the schema, example queries, and migration tools.
-- `github-researcher` — gates `github.com` WebFetch calls so they route through the
-  `github-researcher` subagent: denied in the main thread, allowed inside the agent, and logged
-  either way. Pairs with the `github-researcher` subagent.
+- `git-wright` — owns all git operations: committing, interactive rebase, staging, conflict
+  resolution, branch and remote management, and pull requests.
+- `github-researcher` — researches GitHub (issues, pull requests, releases, CHANGELOGs) through
+  the `gh` CLI.
 
 ## Skills
 
@@ -32,23 +24,22 @@ The repository is organized by component type:
   output.
 - `tool-usage` — query the `tool-monitor` database to analyze Claude's tool usage.
 
-## Subagents
+## Hooks
 
-- `git-wright` — owns all git operations: committing, interactive rebase, staging, conflict
-  resolution, branch and remote management, and pull requests.
-- `github-researcher` — researches GitHub (issues, pull requests, releases, CHANGELOGs) through
-  the `gh` CLI.
+- `tool-monitor` — captures every tool invocation into a SQLite database via the four
+  tool-hook events, for later analysis of tool usage. A Rust binary; pairs with the `tool-usage`
+  skill. See `hooks/tool-monitor/README.md` for the schema, example queries, and migration tools.
+- `github-researcher` — denies `github.com` and `githubusercontent.com` WebFetch calls in the main
+  agent, allowed inside the agent, and logged either way. Pairs with the `github-researcher`
+  subagent.
 
 ## Installation
-
-Each component installs independently. Skills and subagents are discovered from your Claude Code
-config directory; hooks are wired in `settings.json`.
 
 ### Skills and subagents
 
 Claude Code discovers skills from `~/.claude/skills/` and subagents from `~/.claude/agents/`.
-Install a component by symlinking it (stays in sync with the repo) or copying it (a fixed
-snapshot) — whichever you prefer:
+
+Install a component by symlinking it or copying it:
 
 ```
 # Skill: symlink the directory (or use `cp -R` to copy)
